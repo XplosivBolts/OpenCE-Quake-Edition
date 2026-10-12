@@ -136,6 +136,9 @@ symbols in this file:
 #include "text/draw_string.h"
 #include "units/unit_definitions.h"
 #include "units/bipeds.h"
+#include "quake_movement.h" /* port: port/linux/game/quake_movement.c */
+#include "quake_weapons.h" /* port: shared rocket/frag self damage */
+#include "quake_weapons.h" /* port: Quake blast obstruction checks */
 #include "units/units.h"
 #include "units/vehicles.h"
 
@@ -377,10 +380,10 @@ static void damage_material_type_error(
 boolean debug_damage;
 
 /* Name and type from the 2003 PC demo PDB ONLY (file static long); HCEX has no such static, so
-   the name is singly attested. January corroborates the storage: .bss +0x48, after
-   object_cause_damage's default material. Both statics are uninitialised and VC7 orders
-   uninitialised statics by a hash of their names, so this name takes part in producing
-   January's order; no other name was tested. */
+			the name is singly attested. January corroborates the storage: .bss +0x48, after
+			object_cause_damage's default material. Both statics are uninitialised and VC7 orders
+			uninitialised statics by a hash of their names, so this name takes part in producing
+			January's order; no other name was tested. */
 static long global_debug_damage_object_index;
 
 /* ---------- public code */
@@ -1041,18 +1044,39 @@ static void object_damage_aftermath(
 	/* port: (a client's replay of the host's nonlethal damage too) */
 	damage_data_validate_owner(damage);
 
-	if (object_definition->object.acceleration_scale > _real_epsilon)
+	if (object_definition->object.acceleration_scale > _real_epsilon &&
+		!TEST_FLAG(damage->flags, _damage_quake_fall_bit)) /* port: world fall damage adds no momentum */
 	{
 		real_vector3d direction = damage->direction;
 		real_vector3d acceleration;
 		real acceleration_scale;
+		/* port: radial player blasts add momentum without Halo's upward bias */
+		boolean quake_blast = object->object.type == _object_type_biped &&
+			TEST_FLAG(damage->flags, _damage_area_of_effect_bit) &&
+			(damage_effect->damage.category == _damage_category_grenade ||
+				damage_effect->damage.category == _damage_category_highexplosive) && (quake_player_active(object_index) || TEST_FLAG(damage->flags, _damage_quake_blast_bit));
 
-		direction.k += 0.45f;
+		if (!quake_blast)
+			direction.k += 0.45f;
 		normalize3d(&direction);
 		acceleration_scale =
 			damage_effect->damage.instantaneous_acceleration *
 			object_definition->object.acceleration_scale *
 			0.033333335f;
+		if (quake_blast)
+		{
+			/* port: Quake falloff uses the box center (28 units above
+			feet); impulse direction uses its origin (24 units above feet) */
+			real_point3d center = object->object.position;
+			real_point3d origin = center;
+
+			center.z += 28.f * QUAKE_WORLD_SCALE;
+			origin.z += 24.f * QUAKE_WORLD_SCALE;
+			vector_from_points3d(&damage->epicenter, &origin, &direction);
+			normalize3d(&direction);
+			acceleration_scale = quake_movement_blast_velocity(distance3d(&damage->epicenter, &center),
+				object_index == damage->owner_object_index);
+		}
 		scale_vector3d(&direction, acceleration_scale, &acceleration);
 
 		switch (object->object.type)
@@ -1083,7 +1107,11 @@ static void object_damage_aftermath(
 				{
 					if (object->object.type == _object_type_biped)
 					{
-						biped_accelerate(object_index, &acceleration);
+						/* port: player blasts bypass the living-biped halving */
+						if (quake_blast)
+							quake_player_blast(object_index, &acceleration);
+						else
+							biped_accelerate(object_index, &acceleration);
 					}
 					else if (object->object.type == _object_type_vehicle)
 					{
@@ -1440,6 +1468,10 @@ void object_cause_damage(
 	long damaged_object_indices[16];
 	/* port: the gametype's friendly fire (game_engine_friendly_damage) */
 	short friendly_damage;
+	/* port: Quake rocket/grenade self damage, in this object's health units */
+	boolean quake_self_damage;
+	struct damage_definition quake_damage_definition;
+	struct damage_resistance_material quake_damage_material;
 
 	/* the distributed netcode (port/linux/NETCODE.md): the host deals
 	damage; a client reports its own players' hits instead, and the host
@@ -1455,6 +1487,12 @@ void object_cause_damage(
 
 	damage_effect = damage_effect_definition_get(damage->definition_index);
 	damage_definition = &damage_effect->damage;
+	quake_self_damage = object_index == damage->owner_object_index &&
+		TEST_FLAG(damage->flags, _damage_area_of_effect_bit) &&
+		(damage_definition->category == _damage_category_grenade ||
+			damage_definition->category == _damage_category_highexplosive) &&
+		object_get(object_index)->object.type == _object_type_biped &&
+		biped_get(object_index)->unit.player_index != NONE && quake_weapons_blast_tag(damage->definition_index);
 	damage_was_modified = FALSE;
 	parent_takes_body_damage = TRUE;
 
@@ -1512,6 +1550,35 @@ void object_cause_damage(
 	{
 		total_damage *= game_difficulty_get_value(_game_difficulty_value_enemy_damage);
 		damage_was_modified = TRUE;
+	}
+
+	/* port: replace only the shooter's splash harm. Knockback continues
+	to use the original tag and falloff, independently of health loss. */
+	if (quake_self_damage || TEST_FLAG(damage->flags, _damage_quake_blast_bit) ||
+		TEST_FLAG(damage->flags, _damage_quake_fall_bit))
+	{
+		real_point3d center = object_get(object_index)->object.position;
+		real distance;
+		short modifier;
+
+		center.z += 28.f * QUAKE_WORLD_SCALE;
+		distance = distance3d(&damage->epicenter, &center);
+		total_damage = (TEST_FLAG(damage->flags, _damage_quake_fall_bit) ? 5.f :
+			quake_movement_splash_points(distance, QUAKE_WORLD_SCALE, quake_self_damage)) *
+			object_get_maximum_body_vitality(object_index, FALSE) / 100.f;
+		quake_damage_definition = *damage_definition;
+		for (modifier = 0; modifier < MAXIMUM_NUMBER_OF_MATERIAL_TYPES; ++modifier)
+			quake_damage_definition.material_modifiers[modifier] = 1.f;
+		quake_damage_definition.side_effect = _damage_side_effect_none;
+		if (TEST_FLAG(damage->flags, _damage_quake_fall_bit))
+		{
+			/* port: Quake fall damage passes through protection, with no stun or impulse */
+			SET_FLAG(quake_damage_definition.flags, _damage_skips_shields_bit, FALSE);
+			SET_FLAG(quake_damage_definition.flags, _damage_only_hurts_shields_bit, FALSE);
+			quake_damage_definition.stun = quake_damage_definition.maximum_stun = 0.f;
+			quake_damage_definition.instantaneous_acceleration = 0.f;
+		}
+		damage_definition = &quake_damage_definition;
 	}
 
 	damaged_object_count = 0;
@@ -1759,6 +1826,15 @@ void object_cause_damage(
 				}
 
 				damage->material_type = damage_material->material_type;
+				if (quake_self_damage || TEST_FLAG(damage->flags, _damage_quake_fall_bit))
+				{
+					/* port: 100 Quake points mean one full body-health bar,
+					without explosive material multipliers increasing them */
+					quake_damage_material = *damage_material;
+					quake_damage_material.body_damage_multiplier = 1.f;
+					quake_damage_material.shield_damage_multiplier = 1.f;
+					damage_material = &quake_damage_material;
+				}
 
 				if (cheat.omnipotent && damage->owner_player_index != NONE)
 					force_kill = TRUE;
@@ -1942,7 +2018,7 @@ void area_of_effect_cause_damage(
 		0,
 		&damage->location,
 		&damage->origin,
-		definition->cutoff_radius,
+		TEST_FLAG(damage->flags, _damage_quake_blast_bit) ? 160.f * QUAKE_WORLD_SCALE : definition->cutoff_radius,
 		object_indices,
 		NUMBEROF(object_indices));
 	if (object_count > 0)
@@ -1951,6 +2027,9 @@ void area_of_effect_cause_damage(
 
 		for (object_number = 0; object_number < object_count; object_number++)
 		{
+			/* port: a manually applied projectile blast excludes its source */
+			if (TEST_FLAG(damage->flags, _damage_quake_blast_bit) && object_indices[object_number] == unused_object_index)
+				continue;
 			area_of_effect_cause_damage_to_object(
 				damage,
 				object_indices[object_number],
@@ -2403,7 +2482,13 @@ static void area_of_effect_cause_damage_to_object(
 	global_current_collision_users[global_current_collision_user_depth++] =
 		_collision_user_area_damage;
 
-	if (can_damage &&
+	/* port: selected Quake blasts use five target rays */
+	if (can_damage && object->object.type == _object_type_biped && TEST_FLAG(damage->flags, _damage_quake_blast_bit))
+	{
+		epicenter = &damage->epicenter;
+		collision_blocked = !quake_weapons_blast_visible(epicenter, object_index);
+	}
+	else if (can_damage &&
 		TEST_FLAG(_object_mask_unit, object->object.type) &&
 		damage_effect->damage.area_of_effect_core_radius > _real_epsilon)
 	{
@@ -2563,6 +2648,13 @@ static void area_of_effect_cause_damage_to_object(
 			&damage->direction);
 		distance = normalize3d(&damage->direction);
 		radius_delta = damage_effect->cutoff_radius - damage_effect->falloff_radius;
+		if (TEST_FLAG(damage->flags, _damage_quake_blast_bit))
+		{
+			real_point3d center = object->object.position;
+			center.z += 28.f * QUAKE_WORLD_SCALE;
+			if (distance3d(epicenter, &center) > 160.f * QUAKE_WORLD_SCALE) can_damage = FALSE;
+			radius_delta = 0.f;
+		}
 		if (radius_delta > 0.f)
 		{
 			scale = PIN(
@@ -2584,7 +2676,7 @@ static void area_of_effect_cause_damage_to_object(
 			damage->scale = scale;
 		}
 
-		if (scale > 0.f)
+		if (can_damage && scale > 0.f)
 		{
 			object_cause_damage(
 				damage,

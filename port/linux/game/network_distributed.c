@@ -9,38 +9,38 @@ The host decides; its clients predict their own players and show the
 rest as the host has it:
 
 - The game's objects (units, vehicles, weapons, equipment) are the host's,
-  at the same datum index on every machine (network_objects.c): the host
-  says which it has, where they are and what units carry.
+		at the same datum index on every machine (network_objects.c): the host
+		says which it has, where they are and what units carry.
 - Every tick, a client sends the host its own players' input, each tick's
-  buttons again with the next three ticks' (a press is lost only with four
-  datagrams in a row), and the host takes each tick's buttons once. The
-  host sends every client the other players' input as its tick ran it, the
-  same way, and the clients drive those players with it
-  (player_queues_new.c).
+		buttons again with the next three ticks' (a press is lost only with four
+		datagrams in a row), and the host takes each tick's buttons once. The
+		host sends every client the other players' input as its tick ran it, the
+		same way, and the clients drive those players with it
+		(player_queues_new.c).
 - Every tick, a client sends the host where its own players' units are (it
-  predicts them from its own input); the host takes that as they are,
-  within a tolerance, as later Halo engines do, at its next tick (on a
-  moving elevator, only across: its own elevator takes them up and down).
+		predicts them from its own input); the host takes that as they are,
+		within a tolerance, as later Halo engines do, at its next tick (on a
+		moving elevator, only across: its own elevator takes them up and down).
 - Every tick, the host sends every client every player's unit: which unit
-  the player has, alive or not, the seat it rides, its shields and health
-  (down, recharging, the damage they show), and where it is (dead: who
-  killed it, which a client announces when its copy dies). A client binds,
-  kills, seats and places its copies to match (it decides no deaths or
-  spawns itself), and its own only when far off (a respawn, a teleport).
-  Players far from a client's own, or out of their sight, are sent to it
-  (their units and their input) less often, but at once when they come into
-  sight, and their input every tick while their buttons change.
+		the player has, alive or not, the seat it rides, its shields and health
+		(down, recharging, the damage they show), and where it is (dead: who
+		killed it, which a client announces when its copy dies). A client binds,
+		kills, seats and places its copies to match (it decides no deaths or
+		spawns itself), and its own only when far off (a respawn, a teleport).
+		Players far from a client's own, or out of their sight, are sent to it
+		(their units and their input) less often, but at once when they come into
+		sight, and their input every tick while their buttons change.
 - Twice a second, and with every kill, the host sends the players'
-  statistics (kills, deaths, ...) that changed, and once a second a few
-  more round them all, which clients take as they are; a machine that has
-  loaded, all of them.
+		statistics (kills, deaths, ...) that changed, and once a second a few
+		more round them all, which clients take as they are; a machine that has
+		loaded, all of them.
 - The host sends the game type's state (the scores, the flags, the balls
-  and the hill) when it changes (looked at five times a second), once a
-  second, and to a machine that has loaded, which clients take as it is
-  (game_engine_write_network_state).
+		and the hill) when it changes (looked at five times a second), once a
+		second, and to a machine that has loaded, which clients take as it is
+		(game_engine_write_network_state).
 - Damage is the host's: a client reports its own players' hits, which the
-  host checks and deals, and replays the damage the host deals for its
-  effects (network_damage.c).
+		host checks and deals, and replays the damage the host deals for its
+		effects (network_damage.c).
 
 The unreliable messages of a tick to a machine go in as few datagrams (a
 batch) as they fill, and each carries its tick (its header's game time):
@@ -74,6 +74,7 @@ machine (their datum identifiers need not be).
 #include "units/biped_definitions.h"
 #include "units/bipeds.h"
 #include "network_coop.h"
+#include "quake_movement.h"
 #include "network_distributed.h"
 #include "network_voice.h"
 #include "map_share.h"
@@ -229,6 +230,10 @@ enum
 	/* (alive) camouflaged, and doubly so */
 	_distributed_unit_camouflaged_bit = 0,
 	_distributed_unit_super_camouflaged_bit,
+	_distributed_unit_quake_physics_bit,
+	_distributed_unit_physics_known_bit,
+	_distributed_unit_quake_weapons_bit,
+	_distributed_unit_weapons_known_bit,
 };
 
 /* a unit state's parts on the wire: which of those that are not always
@@ -332,7 +337,8 @@ struct distributed_player_input
 	byte player_index;
 	/* co-op: the structure BSP the client has loaded */
 	byte structure_bsp_index;
-	byte pad[2];
+	byte quake_physics; /* requested style for the next life, 0 or 1 */
+	byte quake_weapons; /* independent rocket/frag behavior, 0 or 1 */
 	/* the client's tick */
 	long tick;
 	/* the latest host tick the client has had a message of (the host
@@ -1368,6 +1374,13 @@ static void distributed_state_from_player(
 		real camouflage = unit->unit.active_camouflage;
 
 		state->unit_index = unit_index;
+		if (unit->object.type == _object_type_biped)
+		{
+			SET_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit, quake_player_style(unit_index));
+			SET_FLAG(state->unit_flags, _distributed_unit_physics_known_bit, quake_player_style_known(unit_index));
+			SET_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit, quake_player_weapons(unit_index));
+			SET_FLAG(state->unit_flags, _distributed_unit_weapons_known_bit, quake_player_weapons_known(unit_index));
+		}
 		SET_FLAG(state->flags, _distributed_unit_alive_bit, TRUE);
 		SET_FLAG(state->flags, _distributed_unit_placed_bit, unit->object.parent_object_index == NONE);
 		if (unit->object.parent_object_index != NONE && unit->unit.parent_seat_index != NONE)
@@ -1620,6 +1633,12 @@ static boolean distributed_apply_state(
 		if (maximum_fall_speed > 0.0f && velocity.k < -maximum_fall_speed)
 			velocity.k = -maximum_fall_speed;
 	}
+	/* The host's Quake player accumulates momentum over many ticks.
+	Taking a client's velocity would let each correction add momentum
+	again. Keep the velocity generated by the host's inputs and blasts. */
+	if (!network_game_distributed_client() && object->object.type == _object_type_biped &&
+		quake_player_active(unit_index))
+		velocity = object->object.translational_velocity;
 	error.i = position->x - object->object.position.x;
 	error.j = position->y - object->object.position.y;
 	error.k = position->z - object->object.position.z;
@@ -1795,6 +1814,8 @@ static void distributed_handle_predictions(
 how high (distributed_on_foot_bound) */
 struct distributed_on_foot_bound
 {
+	/* Gravity of the simulated unit, including Quake's player-only scale. */
+	real gravity;
 	/* across and up (world units a tick) */
 	real speed;
 	/* the highest the host has had it since it last had it on the ground,
@@ -1846,6 +1867,7 @@ static void distributed_on_foot_bound(
 	real base_speed;
 	real added_rise;
 	real rise_speed;
+	real movement_gravity = biped && quake_player_active(unit_index) ? quake_player_gravity() : global_gravity;
 
 	/* (a unit new on foot, a new life or a ride's end: all its speed its
 	ticks', from where it is) */
@@ -1899,6 +1921,20 @@ static void distributed_on_foot_bound(
 		struct biped_definition *definition = biped_definition_get(biped->definition_index);
 
 		jump_speed = definition->biped.jump_velocity;
+		if (quake_player_active(unit_index))
+		{
+			jump_speed = quake_player_jump_velocity();
+			run_speed = quake_player_speed();
+			if (game_players_are_double_speed() && globals && globals->player_information.count > 0)
+			{
+				struct game_globals_player_information *information = TAG_BLOCK_GET_ELEMENT(&globals->player_information,
+					0, struct game_globals_player_information);
+
+				run_speed *= MAX(information->double_speed_multiplier, 1.f);
+			}
+			if (player)
+				run_speed *= MAX(player->speed_multiplier, 1.f);
+		}
 		crouch_rise = definition->biped.collision_height_standing - definition->biped.collision_height_crouching;
 	}
 	base_speed = PREDICTED_ON_FOOT_SPEED_SCALE * (real)sqrt(run_speed * run_speed + jump_speed * jump_speed);
@@ -1911,7 +1947,9 @@ static void distributed_on_foot_bound(
 		crouch_rise = 0.0f;
 	/* (what its tick sent it, noted; so written that a speed not a number
 	is none) */
-	if (taken_speed > base_speed)
+	/* Quake velocity is generated on the host, never taken from the
+	client: retain legitimate strafe and wall speed above the tagged run. */
+	if ((!biped || !quake_player_active(unit_index)) && taken_speed > base_speed)
 		host_speed -= taken_speed - base_speed;
 	added_rise = MAX(velocity->k, 0.0f) - MAX(noted->velocity.k, 0.0f);
 	if (noted->grounded)
@@ -1954,8 +1992,9 @@ static void distributed_on_foot_bound(
 		rise_speed += jump_speed;
 	rise_speed += MAX(jump_speed, run_speed);
 	bound->rise = UNIT_WORLD_BOUND;
-	if (biped && global_gravity > 0.0f)
-		bound->rise = rise_speed * rise_speed / (2.0f * global_gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
+	bound->gravity = movement_gravity;
+	if (biped && movement_gravity > 0.0f)
+		bound->rise = rise_speed * rise_speed / (2.0f * movement_gravity) + crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->rise_speed = rise_speed;
 	bound->rise_base = crouch_rise + PREDICTED_RISE_TOLERANCE;
 	bound->airborne_ticks = noted->grounded ? 0 : now - noted->ground_time;
@@ -1974,8 +2013,8 @@ static real distributed_on_foot_fall_speed(
 	real drop = bound->top_height - height;
 	real speed = bound->speed;
 
-	if (drop > 0.0f && global_gravity > 0.0f)
-		speed += (real)sqrt(2.0f * global_gravity * drop);
+	if (drop > 0.0f && bound->gravity > 0.0f)
+		speed += (real)sqrt(2.0f * bound->gravity * drop);
 	return MIN(speed, MAXIMUM_PREDICTED_SPEED);
 }
 
@@ -1996,9 +2035,9 @@ static real distributed_on_foot_ceiling(
 			(real)PREDICTION_CEILING_LEAD_TICKS) -
 		(real)PREDICTION_JITTER_TICKS;
 
-	if (bound->airborne_ticks > 0 && ticks > 0.0f && global_gravity > 0.0f)
+	if (bound->airborne_ticks > 0 && ticks > 0.0f && bound->gravity > 0.0f)
 	{
-		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * global_gravity * ticks * ticks;
+		real ceiling = bound->rise_base + bound->rise_speed * ticks - 0.5f * bound->gravity * ticks * ticks;
 
 		if (ceiling < rise)
 			rise = ceiling;
@@ -2251,6 +2290,13 @@ static void distributed_handle_unit_state(
 			unit_kill(unit_index);
 	}
 	unit_index = state->unit_index;
+	/* The active style comes only from the host, attached to this life.
+	Unknown defaults while joining must not overwrite local prediction. */
+	if (object_get(unit_index)->object.type == _object_type_biped &&
+		TEST_FLAG(state->unit_flags, _distributed_unit_physics_known_bit))
+		quake_player_set_style(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit));
+	if (object_get(unit_index)->object.type == _object_type_biped && TEST_FLAG(state->unit_flags, _distributed_unit_weapons_known_bit))
+		quake_player_set_weapons(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit));
 	/* the seat it rides: a client's own player's, once it has ridden
 	otherwise for longer than its prediction takes to reach the host and
 	come back (a player within the tracked ones, as players.c's datums are) */
@@ -2368,6 +2414,8 @@ static void distributed_client_send_inputs(
 		if (!update_client_distributed_input(local_player_index, &input->tick, &input->action, input->control_flags))
 			continue;
 		input->player_index = distributed_player_to_byte(player_index);
+		input->quake_physics = (byte)quake_movement_preference(local_player_index);
+		input->quake_weapons = (byte)quake_weapons_preference(local_player_index);
 		input->structure_bsp_index = (byte)global_structure_bsp_index_get();
 		input->host_time = distributed_host_time;
 		count++;
@@ -2427,6 +2475,7 @@ static void distributed_handle_inputs(
 		struct player_action action;
 
 		if (input->player_index >= MAXIMUM_TRACKED_PLAYERS ||
+			input->quake_physics > 1 || input->quake_weapons > 1 ||
 			!distributed_machine_has_player(machine_index, input->player_index))
 		{
 			continue;
@@ -2434,6 +2483,11 @@ static void distributed_handle_inputs(
 		player = distributed_player(input->player_index);
 		if (!player)
 			continue;
+		/* Authenticated ownership above: a player can request only their
+		own next-life style. Old datagrams cannot undo a newer preference. */
+		quake_player_request(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick,
+			input->quake_physics != 0);
+	quake_player_weapons_request(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick, input->quake_weapons != 0);
 		/* (the sticks and the trigger no further than a controller's) */
 		action = input->action;
 		action.throttle.i = PIN(action.throttle.i, -1.0f, 1.0f);
@@ -3362,6 +3416,7 @@ void network_distributed_new_game(
 	distributed_pickup_count = 0;
 	/* (each player's latest input: player_queues_new.c) */
 	update_queues_distributed_reset();
+	quake_preferences_reset();
 	network_objects_new_game();
 	network_damage_new_game();
 	network_actors_new_game();

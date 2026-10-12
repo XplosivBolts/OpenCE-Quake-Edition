@@ -176,6 +176,9 @@ symbols in this file:
 
 /* ---------- constants */
 
+/* port: projectile explosions may supply damage separately from their visuals */
+boolean effects_visual_only;
+
 enum effect_flags
 {
 	_effect_in_duration_bit = 0,
@@ -185,6 +188,7 @@ enum effect_flags
 	_effect_invisible_bit,
 	_effect_delete_on_stop_bit,
 	_effect_nonviolent_bit,
+	_effect_visual_only_bit, /* port: no native damage parts */
 	NUMBER_OF_EFFECT_FLAGS
 };
 
@@ -841,6 +845,8 @@ long effect_new_unattached_from_markers(
 		struct effect_datum *effect = effect_get(effect_index);
 		struct effect_marker_list marker_list;
 
+		/* port: latch before effect_update can immediately cause damage */
+		SET_FLAG(effect->header.flags, _effect_visual_only_bit, effects_visual_only);
 		impulse_effect_initialize(effect, scale_a, scale_b, color, impulse_field);
 
 		effect->object_index = NONE;
@@ -1741,6 +1747,8 @@ static void effect_generate_part(
 			struct object_datum *owner =
 				object_try_and_get(effect->owner_object_index);
 
+			/* port: Quake explosions apply one radial blast, without Halo shock waves */
+			if (TEST_FLAG(effect->header.flags, _effect_visual_only_bit)) break;
 			damage_data_new(&damage, part_definition->reference.index);
 
 			if (owner)

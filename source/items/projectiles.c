@@ -119,6 +119,8 @@ symbols in this file:
 
 #include "projectiles_callbacks.h"
 #include "projectile_definitions.h"
+#include "quake_weapons.h" /* port: per-projectile weapon behavior */
+#include "quake_movement.h" /* port: shared Quake spatial scale */
 
 #include "ai/ai.h"
 #include "cseries/profile.h"
@@ -605,6 +607,8 @@ boolean projectile_new(
 	SET_FLAG(projectile->object.flags, _object_shadowless_bit, TRUE);
 	SET_FLAG(projectile->object.flags, _object_deleted_when_deactivated_bit, TRUE);
 
+	/* port: capture weapon behavior before the owner changes or dies */
+	quake_weapons_stamp(projectile_index);
 	return TRUE;
 }
 
@@ -662,6 +666,61 @@ void projectile_accelerate(
 	return;
 }
 
+/* port: selected projectiles use point traces and Quake toss/fly movement
+   in three substeps, with one fuse clock per Halo world tick. */
+static boolean quake_projectile_update(long projectile_index, short kind)
+{
+	struct projectile_datum *projectile = projectile_get(projectile_index);
+	short step;
+	boolean detonate = FALSE;
+	if (projectile->object.parent_object_index != NONE) return TRUE;
+	quake_weapons_launch(projectile_index);
+	/* port: test elapsed ticks before advancing the interval; the launch
+	   update is time zero, not one elapsed world tick. */
+	if (projectile->projectile.detonation_timer >= (kind == 2 ? 75.f : 150.f))
+	{
+		if (kind == 2) projectile_detonate(projectile_index, TRUE, 0.f);
+		object_delete(projectile_index);
+		return TRUE;
+	}
+	for (step = 0; step < 3; ++step)
+	{
+		real_point3d position;
+		real_vector3d velocity = projectile->object.translational_velocity;
+		struct collision_result collision;
+		if (TEST_FLAG(projectile->object.flags, _object_at_rest_bit)) break;
+		if (kind == 2) velocity.k -= 800.f * QUAKE_WORLD_SCALE / (TICKS_PER_SECOND * TICKS_PER_SECOND * 3.f);
+		point_from_line3d(&projectile->object.position, &velocity, 1.f/3.f, &position);
+		global_current_collision_users[global_current_collision_user_depth++] = _collision_user_projectiles;
+		if (projectile_collision_test_line(projectile_index, &position, &collision))
+		{
+			position = collision.point;
+			/* port: Quake hull traces leave a small gap before the contact plane */
+			point_from_line3d(&position, &collision.plane.n, 0.03125f * QUAKE_WORLD_SCALE, &position);
+			if (kind == 1 || (collision.type == _collision_result_object &&
+				object_try_and_get_and_verify_type(collision.object_index, _object_mask_unit)))
+				detonate = TRUE;
+			else
+			{
+				quake_weapons_grenade_bounce(&velocity, &collision.plane.n);
+				if (collision.plane.n.k > 0.7f && magnitude_squared3d(&velocity) == 0.f)
+					SET_FLAG(projectile->object.flags, _object_at_rest_bit, TRUE);
+			}
+		}
+		--global_current_collision_user_depth;
+		object_translate(projectile_index, &position, NULL);
+		projectile->object.translational_velocity = velocity;
+		if (detonate) break;
+	}
+	projectile->projectile.detonation_timer += 1.f;
+	if (detonate)
+	{
+		projectile_detonate(projectile_index, TRUE, 0.f);
+		object_delete(projectile_index);
+	}
+	return TRUE;
+}
+
 boolean projectile_update(
 	long projectile_index)
 {
@@ -674,6 +733,9 @@ boolean projectile_update(
 
 	projectile = projectile_get(projectile_index);
 	definition = projectile_definition_get(projectile->definition_index);
+	/* port: use the behavior captured at firing, independently of movement */
+	if (quake_weapons_projectile_kind(projectile_index))
+		return quake_projectile_update(projectile_index, quake_weapons_projectile_kind(projectile_index));
 	time_remaining = 1.0f;
 	collision_count = 0;
 	flyby_sound_played = FALSE;
@@ -1288,7 +1350,7 @@ static boolean projectile_collision_test_line(
 	{
 		return TRUE;
 	}
-	else if (definition->projectile.collision_radius < _real_epsilon)
+	else if (quake_weapons_projectile_kind(projectile_index) || definition->projectile.collision_radius < _real_epsilon)
 	{
 		return FALSE;
 	}
@@ -1346,6 +1408,7 @@ static void projectile_detonate(
 	real_vector3d marker_forwards[2];
 	real_vector3d up;
 	long effect_definition_index;
+	boolean visual_only_before;
 
 	projectile = projectile_get(projectile_index);
 	definition = projectile_definition_get(projectile->definition_index);
@@ -1432,6 +1495,13 @@ static void projectile_detonate(
 	object_get_orientation(projectile_index, &marker_forwards[0], &up);
 	marker_points[1] = marker_points[0];
 	marker_forwards[1] = *global_down3d;
+	/* port: damage is supplied once with Quake radius and obstruction rules */
+	visual_only_before = effects_visual_only;
+	if (quake_weapons_projectile_kind(projectile_index))
+	{
+		quake_weapons_explode(projectile_index);
+		effects_visual_only = TRUE;
+	}
 	effect_new_unattached_from_markers(
 		effect_definition_index,
 		projectile->object.owner_object_index,
@@ -1445,6 +1515,7 @@ static void projectile_detonate(
 		NULL,
 		NULL,
 		TRUE);
+	effects_visual_only = visual_only_before;
 
 	if (projectile->object.parent_object_index != NONE &&
 		definition->projectile.attached_detonation_damage.index != NONE)

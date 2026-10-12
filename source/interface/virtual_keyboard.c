@@ -370,6 +370,8 @@ boolean virtual_keyboard_initialize(
 	virtual_keyboard_globals.caps_active = FALSE;
 	virtual_keyboard_globals.symbols_active = FALSE;
 
+	/* port: the previous map's keyboard storage may have been replaced. */
+	virtual_keyboard_globals.keyboard = NULL;
 	keyboard_index = tag_loaded(VIRTUAL_KEYBOARD_TAG, "ui\\english");
 	if (keyboard_index != NONE)
 	{
@@ -446,7 +448,8 @@ boolean virtual_keyboard_launch(
 		419,
 		(caption_index>=FIRST_VIRTUAL_KEYBOARD_CAPTION_STRING_INDEX) && (caption_index<NUMBER_OF_VIRTUAL_KEYBOARD_STRINGS));
 
-	if (!virtual_keyboard_globals.active && virtual_keyboard_globals.keyboard)
+	/* port: resolve against the current map, never a pointer retained from ui.map. */
+	if (!virtual_keyboard_globals.active && virtual_keyboard_initialize())
 	{
 		event_manager_flush();
 		virtual_keyboard_globals.row = 0;

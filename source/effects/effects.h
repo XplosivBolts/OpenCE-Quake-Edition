@@ -101,6 +101,8 @@ void effects_start_on_first_person_weapon(
 
 /* ---------- globals */
 
+/* port: scoped at creation; captured by the effect before its first event */
+extern boolean effects_visual_only;
 extern boolean effects_corpse_nonviolent;
 extern boolean debug_effects_nonviolent;
 

@@ -6,34 +6,34 @@ game's (menu_tags.c names them; ui_widget_event_handler_function_invoke
 calls them from PC_MENU_FUNCTION_BASE on):
 
 - "port quit game" (and the PC version's "main menu quit game") quits, as
-  closing the window does;
+		closing the window does;
 - the PC version's "profile set edit begin" begins editing the first player
-  profile, as its settings screens need, and fails with none: the main
-  menu's then asks for a new one's name, as the menu's other items do, and
-  its handlers open the screens that make the profile ("new campaign
-  decision", after which Settings' is the one being edited);
+		profile, as its settings screens need, and fails with none: the main
+		menu's then asks for a new one's name, as the menu's other items do, and
+		its handlers open the screens that make the profile ("new campaign
+		decision", after which Settings' is the one being edited);
 - "gamespy screen init" hides the server browser's error and filter panels,
-  and the title of the mode "mp type set mode" did not choose (Internet or
-  LAN);
+		and the title of the mode "mp type set mode" did not choose (Internet or
+		LAN);
 - its buttons' events: "mouse emit back event" and "mouse emit x event" push
-  B and X (as the mouse does), "emit custom activation event" (an OK
-  button) runs the screen's custom activation handler, "single prev cl item
-  activated" (an item chosen) its list's, and its back handlers go back;
+		B and X (as the mouse does), "emit custom activation event" (an OK
+		button) runs the screen's custom activation handler, "single prev cl item
+		activated" (an item chosen) its list's, and its back handlers go back;
 - "port setting load", on a spinner's created event, shows the value its
-  setting has (or the nearest of its values): config.toml's, or for
-  "profile.<field>" the controller's in the profile being edited;
+		setting has (or the nearest of its values): config.toml's, or for
+		"profile.<field>" the controller's in the profile being edited;
 - "port setting save", on its deleted event, writes the value shown back,
-  if the player changed it;
+		if the player changed it;
 - the settings screens' (tools/port_settings.py): "port settings save"
-  (OK) writes those changed and applies the window's (the rest follow
-  config.toml themselves), "port settings defaults" shows the defaults,
-  "port settings help" the help of the row chosen (and Video Setup's
-  Resolution or Window Size, for the display mode shown);
+		(OK) writes those changed and applies the window's (the rest follow
+		config.toml themselves), "port settings defaults" shows the defaults,
+		"port settings help" the help of the row chosen (and Video Setup's
+		Resolution or Window Size, for the display mode shown);
 - Controls Setup's: the keyboard and mouse's controls, two bindings each,
-  shown a group at a time ("controls update menu"); "controls begin
-  binding" takes the next key or button pressed for the binding left and
-  right choose ("controls binding slot"); OK ("controls screen change set")
-  writes them, "controls screen defaults" shows the defaults.
+		shown a group at a time ("controls update menu"); "controls begin
+		binding" takes the next key or button pressed for the binding left and
+		right choose ("controls binding slot"); OK ("controls screen change set")
+		writes them, "controls screen defaults" shows the defaults.
 
 A spinner's values are its strings' (setting= and values= in its <widget>,
 menu_tags.c's pc_menu_setting).
@@ -42,16 +42,16 @@ The PC version's campaign menus, on player 1's profile (the active one, else
 the one last used, else the first) and the game's saved game in it:
 - "campaign menu continue" goes on with the saved game;
 - New Game's list of levels ("initialize sp level list solo", "solo map
-  list update", "solo level set map") has those the profile has reached, and
-  marks those it has finished on Normal, Heroic and Legendary, as the
-  Xbox's list does; a level with the saved game in it goes on with it, at
-  its difficulty. Its first row's chooser shows MULTIPLAYER's maps
-  instead, one chosen played alone at once;
+		list update", "solo level set map") has those the profile has reached, and
+		marks those it has finished on Normal, Heroic and Legendary, as the
+		Xbox's list does; a level with the saved game in it goes on with it, at
+		its difficulty. Its first row's chooser shows MULTIPLAYER's maps
+		instead, one chosen played alone at once;
 - the difficulty menu: "difficulty item select" (a difficulty chosen) and
-  "set difficulty" (its OK button: the difficulty shown) start the game;
+		"set difficulty" (its OK button: the difficulty shown) start the game;
 - Load Game's list ("load game menu init", "load game list update", "load
-  game menu activated") has each profile's saved game, and "load game menu
-  delete request" and "delete finish" delete one.
+		game menu activated") has each profile's saved game, and "load game menu
+		delete request" and "delete finish" delete one.
 The Xbox's functions of those names take the Xbox's widgets (a spinner of
 levels, the difficulty list itself), so ours run instead (menu_tags.c).
 
@@ -82,6 +82,7 @@ their handlers open opens.
 #include "custom_edition_cache.h"
 #include "custom_edition_maps.h"
 #include "network_voice.h"
+#include "quake_movement.h"
 #include "text/draw_string.h"
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
@@ -224,6 +225,7 @@ struct pc_menu_setting *pc_menu_setting_get(long definition_index);
 /* ---------- private code */
 
 static boolean campaign_profile(short controller, struct player_profile *profile);
+static short controller_of(struct widget_instance const *widget);
 
 static boolean text_is_number(char const *text, double *number)
 {
@@ -397,6 +399,16 @@ static boolean setting_write(char const *name, char const *value)
 	return FALSE;
 }
 
+/* Physics uses the opening player's key without changing shared tag
+metadata: different controllers can have different pending choices. */
+static char const *setting_name(struct widget_instance *widget, struct pc_menu_setting *setting)
+{
+	if (!strncmp(setting->setting, "game.quake_weapons", 18))
+		return quake_weapons_setting(controller_of(widget));
+	return !strncmp(setting->setting, "game.quake_physics", 18) ?
+		quake_movement_setting(controller_of(widget)) : setting->setting;
+}
+
 static boolean setting_load(struct widget_instance *widget)
 {
 	struct pc_menu_setting *setting = pc_menu_setting_get(widget->definition_tag_index);
@@ -404,7 +416,7 @@ static boolean setting_load(struct widget_instance *widget)
 
 	if (spinner_item(widget))
 		return TRUE;
-	if (!setting || !setting_text(setting->setting, current, sizeof(current), FALSE))
+	if (!setting || !setting_text(setting_name(widget, setting), current, sizeof(current), FALSE))
 		return FALSE;
 	setting->loaded_index = setting_value_index(setting, current);
 	if (setting->loaded_index < (short)widget->parameters.list.number_of_items)
@@ -1450,15 +1462,24 @@ static struct widget_instance *screen_of(struct widget_instance *widget)
 static boolean setting_changed_save(struct widget_instance *spinner, struct pc_menu_setting *setting)
 {
 	short index = spinner->parameters.list.selected_index;
+	char const *name = setting_name(spinner, setting);
+	char current[300];
 
-	if (index < 0 || index >= setting->value_count || index == setting->loaded_index)
+	if (index < 0 || index >= setting->value_count)
 		return TRUE;
-	if (!setting_write(setting->setting, setting->values[index]))
+	if (!strncmp(name, "game.quake_physics", 18) || !strncmp(name, "game.quake_weapons", 18))
 	{
-		platform_log("menus: could not set %s", setting->setting);
+		if (setting_text(name, current, sizeof(current), FALSE) && index == setting_value_index(setting, current))
+			return TRUE;
+	}
+	else if (index == setting->loaded_index)
+		return TRUE;
+	if (!setting_write(name, setting->values[index]))
+	{
+		platform_log("menus: could not set %s", name);
 		return FALSE;
 	}
-	platform_log("menus: %s = %s", setting->setting, setting->values[index]);
+	platform_log("menus: %s = %s", name, setting->values[index]);
 	setting->loaded_index = index;
 	return TRUE;
 }
@@ -1468,7 +1489,7 @@ static boolean setting_default_show(struct widget_instance *spinner, struct pc_m
 {
 	char text[300];
 
-	if (setting_text(setting->setting, text, sizeof(text), TRUE))
+	if (setting_text(setting_name(spinner, setting), text, sizeof(text), TRUE))
 		spinner->parameters.list.selected_index = setting_value_index(setting, text);
 	return TRUE;
 }
@@ -2045,7 +2066,8 @@ static struct widget_instance *control_row(struct widget_instance *widget)
 /* the control on the row (op_command_<n>) in the group shown, else NONE */
 static short control_of_row(struct widget_instance *row, short group)
 {
-	short wanted = row ? (short)(atoi(row->name + 11) - 1) : NONE;
+	short wanted = row && !strncmp(row->name, "op_command_", 11) ?
+		(short)(atoi(row->name + 11) - 1) : NONE;
 	short control;
 
 	for (control = 0; control < NUMBEROF(controls) && wanted >= 0; control++)
@@ -2118,7 +2140,20 @@ static void controls_update(struct widget_instance *list)
 	short group = controls_group(list);
 	struct widget_instance *row;
 	struct widget_instance *focused_row = control_row(list->focused_child);
+	struct widget_instance *physics = named(list, "op_physics", 0);
+	struct widget_instance *weapons = named(list, "op_weapons", 0);
 
+	if (physics)
+	{
+		physics->visible = group == 0;
+		if (!physics->visible && list->focused_child == physics)
+			focus_row(list, 0);
+	}
+	if (weapons)
+	{
+		weapons->visible = group == 0;
+		if (!weapons->visible && list->focused_child == weapons) focus_row(list, 0);
+	}
 	control_capture_poll();
 	for (row = list->child; row; row = row->next)
 	{
@@ -2157,7 +2192,8 @@ static void controls_update(struct widget_instance *list)
 	if (list->parameters.list.extended_description)
 	{
 		list->parameters.list.extended_description->parameters.text_box.string_list_index =
-			controls_screen.capturing_control != NONE ? 2 : focused_row ? 1 : 0;
+			controls_screen.capturing_control != NONE ? 2 : list->focused_child == physics ?
+				(network_game_get_game() ? 4 : 3) : list->focused_child == weapons ? 5 : focused_row ? 1 : 0;
 	}
 }
 
@@ -5607,11 +5643,19 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
-			return controls_load(!strcmp(name, "controls screen defaults"));
+			boolean defaults = !strcmp(name, "controls screen defaults");
+			boolean result = controls_load(defaults);
+
+			if (defaults)
+				settings_each(screen_of(widget), setting_default_show);
+			return result;
 		}
 		else if (!strcmp(name, "controls screen change set"))
 		{
-			return controls_save();
+			boolean result = controls_save();
+
+			settings_each(screen_of(widget), setting_changed_save);
+			return result;
 		}
 		else if (!strcmp(name, "controls begin binding"))
 		{
