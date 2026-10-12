@@ -1404,7 +1404,7 @@ static void hud_draw_speedometer(struct player_datum const *player)
 	long font_index;
 	real_vector3d velocity;
 	real speed;
-	real_argb_color color = *global_real_argb_white;
+	real_argb_color color;
 	rectangle2d bounds;
 	wchar_t text[32];
 	short height;
@@ -1421,6 +1421,8 @@ static void hud_draw_speedometer(struct player_datum const *player)
 	height = (short)(render.camera.window_bounds.y1 - render.camera.window_bounds.y0);
 	bounds = render.camera.window_bounds;
 	bounds.y0 = (short)((bounds.y0 + bounds.y1) / 2 + height / 15);
+	/* port: the respawn countdown uses this font and HUD state colour. */
+	hud_get_text_color(&color);
 	draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
 	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, text);
 }
