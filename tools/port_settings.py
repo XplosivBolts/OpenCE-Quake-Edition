@@ -485,6 +485,42 @@ def _controls_screen() -> list:
     extra += _widget(f"{base}/command_label",
                      [("type", "text"), ("controller", 1), ("width", 200), ("height", 22), ("font", "ui\\large_ui"),
                       ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    # Movement has six bindings: use its spare seventh row for the native
+    # spinner, in the same place and style as SHOW. Other groups hide it.
+    rows.append((f"{base}/op_physics", None, 7))
+    extra += _widget(f"{base}/op_physics",
+                     [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                      ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                     [f'<child widget="{base}/physics_label"/>',
+                      f'<child widget="{base}/physics_spinner" x="200" y="1"/>'])
+    extra += _widget(f"{base}/physics_label",
+                     [("type", "text"), ("controller", 1), ("width", 200), ("height", 22), ("text", "PHYSICS:"),
+                      ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    extra += _widget(f"{base}/physics_spinner",
+                     [("type", "spinner"), ("left", 3), ("top", 2), ("width", 297), ("height", 20),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                      ("strings", "Halo CE|Quake 1"), ("setting", "game.quake_physics"), ("values", "false|true"),
+                      ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("align", "center"), ("text_y", 1),
+                      ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                      ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 300 19 306")],
+                     ['<on event="created" run="port setting load"/>'])
+    rows.append((f"{base}/op_weapons", None, 8))
+    extra += _widget(f"{base}/op_weapons",
+                     [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                      ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                     [f'<child widget="{base}/weapons_label"/>',
+                      f'<child widget="{base}/weapons_spinner" x="200" y="1"/>'])
+    extra += _widget(f"{base}/weapons_label",
+                     [("type", "text"), ("controller", 1), ("width", 200), ("height", 22), ("text", "ROCKET/GRENADE:"),
+                      ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+    extra += _widget(f"{base}/weapons_spinner",
+                     [("type", "spinner"), ("left", 3), ("top", 2), ("width", 297), ("height", 20),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                      ("strings", "Halo CE|Quake 1"), ("setting", "game.quake_weapons"), ("values", "false|true"),
+                      ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("align", "center"), ("text_y", 1),
+                      ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                      ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 300 19 306")],
+                     ['<on event="created" run="port setting load"/>'])
     extra += _widget(f"{base}/command_binding",
                      [("type", "text"), ("controller", 1), ("width", 152), ("height", 22), ("font", "ui\\small_ui"),
                       ("color", "#FF2896FF"), ("align", "center"), ("text_y", 5), ("text_flags", "no_focus_test")],
@@ -497,6 +533,9 @@ def _controls_screen() -> list:
         "Choose what to show, with left and right.",
         "Enter sets the key chosen; left and right choose\\nwhich of two. Then press the new key or button.",
         "Press a key, a mouse button or turn the wheel...\\nEscape cancels, Delete clears it.",
+        "Choose Halo CE or Quake 1 physics with left/right.\\nOK applies it; Cancel keeps the previous choice.",
+        "Choose your physics with left/right; OK saves it.\\nIn multiplayer, changes apply on your next respawn.",
+        "Choose rocket/frag behavior with left/right.\\nSelf damage stays the same; changes apply next respawn.",
     ])
     return _screen(folder, spec, rows, ["controls update menu"], ['<on event="created" run="controls screen init"/>'],
                    extra)

@@ -124,7 +124,8 @@ static const struct config_setting config_settings[] =
 		"not up to two ticks (66 ms) later." },
 	{ "display.fov", _config_real, "0.0", "HALO_FOV", _environment_value, _platform_all,
 		"The first-person view's field of view on foot, in degrees across at\n"
-		"16:9 (20 to 150); 0 keeps the stock view. Vehicles, cinematics and\n"
+		"16:9 (20 to 150); 0 uses the physics style's default view (Halo's\n"
+		"stock view or Quake's 90 degrees at 4:3). Vehicles, cinematics and\n"
 		"scripted cameras keep their own." },
 	{ "display.viewmodel_fov", _config_real, "0.0", "HALO_VIEWMODEL_FOV", _environment_value, _platform_all,
 		"The first-person weapon's and hands' field of view, in degrees across\n"
@@ -305,6 +306,33 @@ static const struct config_setting config_settings[] =
 		"as CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER. Their tags are checked\n"
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
+	{ "game.quake_physics", _config_boolean, "false", "HALO_QUAKE_PHYSICS", _environment_value, _platform_all,
+		"Player physics: false for Halo CE, true for Quake speed, jump, gravity,\n"
+		"slide/step motion and blasts, retaining Halo crouch jumps and stun.\n"
+		"Controls Setup > Movement > Physics selects it. Network games use\n"
+		"each player's choice; changes apply on that player's next respawn." },
+	{ "game.quake_physics_player2", _config_boolean, "false", "HALO_QUAKE_PHYSICS_PLAYER2", _environment_value, _platform_all,
+		"The second local player's Physics choice: false for Halo CE, true for Quake 1." },
+	{ "game.quake_physics_player3", _config_boolean, "false", "HALO_QUAKE_PHYSICS_PLAYER3", _environment_value, _platform_all,
+		"The third local player's Physics choice: false for Halo CE, true for Quake 1." },
+	{ "game.quake_physics_player4", _config_boolean, "false", "HALO_QUAKE_PHYSICS_PLAYER4", _environment_value, _platform_all,
+		"The fourth local player's Physics choice: false for Halo CE, true for Quake 1." },
+	{ "game.quake_weapons", _config_boolean, "false", "HALO_QUAKE_WEAPONS", _environment_value, _platform_all,
+		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Independent of movement physics; multiplayer changes apply next respawn.\n"
+		"Self damage is unchanged. Infinite ammunition remains test-map only." },
+	{ "game.quake_weapons_player2", _config_boolean, "false", "HALO_QUAKE_WEAPONS_PLAYER2", _environment_value, _platform_all,
+		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Independent of movement physics; multiplayer changes apply next respawn.\n"
+		"Self damage is unchanged. Infinite ammunition remains test-map only." },
+	{ "game.quake_weapons_player3", _config_boolean, "false", "HALO_QUAKE_WEAPONS_PLAYER3", _environment_value, _platform_all,
+		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Independent of movement physics; multiplayer changes apply next respawn.\n"
+		"Self damage is unchanged. Infinite ammunition remains test-map only." },
+	{ "game.quake_weapons_player4", _config_boolean, "false", "HALO_QUAKE_WEAPONS_PLAYER4", _environment_value, _platform_all,
+		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Independent of movement physics; multiplayer changes apply next respawn.\n"
+		"Self damage is unchanged. Infinite ammunition remains test-map only." },
 	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
 		"The energy shield's flare on the first-person arms too, as on the body\n"
 		"(the stock game draws it on the body only)." },
@@ -809,22 +837,33 @@ static char *config_default_text(void)
 		"# it to go back to them. Each setting can also be set for one run with\n"
 		"# the environment variable named with it, which wins over this file.\n");
 #endif
+	/* Group each table once even when metadata for it is not adjacent. */
 	for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
 	{
 		const struct config_setting *setting = &config_settings[index];
 		const char *dot = strchr(setting->name, '.');
+		size_t member;
+		int seen = 0;
 		char buffer[64];
-
-		if (!(setting->platforms & CONFIG_PLATFORM) || !dot)
-			continue;
-		if (strncmp(section, setting->name, (size_t)(dot - setting->name)) ||
-			section[dot - setting->name] != 0)
+		if (!(setting->platforms & CONFIG_PLATFORM) || !dot) continue;
+		snprintf(section, sizeof(section), "%.*s", (int)(dot - setting->name), setting->name);
+		for (member = 0; member < index; member++)
 		{
-			snprintf(section, sizeof(section), "%.*s", (int)(dot - setting->name), setting->name);
-			snprintf(buffer, sizeof(buffer), "\n[%s]\n", section);
-			config_append(&text, buffer);
+			const struct config_setting *earlier = &config_settings[member];
+			if ((earlier->platforms & CONFIG_PLATFORM) &&
+				!strncmp(earlier->name, section, strlen(section)) && earlier->name[strlen(section)] == '.')
+				seen = 1;
 		}
-		config_append_setting(&text, setting);
+		if (seen) continue;
+		snprintf(buffer, sizeof(buffer), "\n[%s]\n", section);
+		config_append(&text, buffer);
+		for (member = index; member < NUMBER_OF_CONFIG_SETTINGS; member++)
+		{
+			const struct config_setting *entry = &config_settings[member];
+			if ((entry->platforms & CONFIG_PLATFORM) &&
+				!strncmp(entry->name, section, strlen(section)) && entry->name[strlen(section)] == '.')
+				config_append_setting(&text, entry);
+		}
 	}
 	return text.buffer;
 }

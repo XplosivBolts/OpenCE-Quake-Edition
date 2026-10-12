@@ -191,6 +191,43 @@ certificate, a browser's ICE credentials too), so that browsers play
 (below, "Map sharing"): a client asks the host for a map it lacks, and the
 game's players reach each other to send it.
 
+Version 28 (Quake Edition) changes player acceleration, friction, jump order
+and radial blast impulses. Movement accumulates speed above the tagged run
+speed. The host therefore retains its own simulated velocity when taking a
+Quake player's position correction, and movement bounds use that host speed
+without subtracting momentum above the stock baseline. Position, flight and
+absolute speed checks remain in force. There is no new packet field; the
+version separates machines whose movement equations differ.
+
+Version 29 doubles player gravity and compensates jump velocity to retain
+the tagged jump apex at 30 Hz. Prediction fall and rise bounds use that
+player gravity and compensated jump speed. Rocket/grenade self-splash harm
+uses Quake's damage values, scaled to the player's maximum body vitality;
+shields remain Halo's. Other entities keep Halo gravity.
+
+Version 30 makes physics a Controls Setup > Movement choice: Halo CE by
+default, or Quake 1. The host puts it in bit 1 of the existing shared game
+flags byte (`network_game.cooperative_flags`), for multiplayer and co-op.
+Pregame changes resend the game settings; started matches keep their mode.
+Clients and late joiners read the host's flag, regardless of local preference.
+
+Version 31 replaces the shared host mode with per-player physics. A client's
+input has a requested-style byte (0 or 1) in formerly reserved padding;
+the host validates the value and player ownership, and ignores older
+requests. Each biped locks its style for that life, with new preferences
+applied on respawn. Unit-state flags carry the confirmed style and whether
+it is known, so late joiners learn it and unconfirmed defaults do not undo
+local prediction. Player handle generations isolate reused slots. Both
+styles use their own movement, damage impulses and prediction bounds in
+the same match. The four local player slots have independent preferences.
+
+Version 32 changes Quake-mode running to 320, jump impulse to 270 and gravity
+to 800 in Quake units, using one 120:1 world scale. Slide/step movement runs
+three substeps per world tick, with Halo crouch displacement and injury stun
+retained. Prediction uses the new speed, jump and gravity; blast momentum
+uses raw Quake splash points times 8. Packet sizes and style fields stay as
+version 31, but different motion equations require a new network version.
+
 A client plays by its host's rules: in another's game (searching for it,
 in its lobby, or playing it) the developer console, the telnet console
 and the cheat buttons run only commands that change nothing of the game
@@ -704,3 +741,19 @@ The host logs to `debug.txt` when a player on another machine presses the
 action button where the host has nothing for them to pick up, with where it
 has them and the nearest item: a client that sees a pickup the host does
 not.
+
+## Quake physics compatibility
+
+Network version 39 carries independent per-player movement and rocket/frag
+behavior requests in the input packet's former padding bytes. The host validates
+both as booleans and accepts only requests belonging to the authenticated
+player's machine. Snapshot bits confirm the active choices and whether they
+are known. Both choices stay attached to a life, survive a same-life biped reset,
+and apply on respawn. Projectiles capture their owner's weapon choice at spawn.
+
+The host and predicting client use the same proportional movement, projectile
+launch, flight, fuse, bounce, blast and falling-damage rules. Quake dimensions
+use 80 units per Halo world unit; the new simulation is incompatible with older
+builds. No input packet or object datum grows. Halo CE choices retain their
+native movement, projectile and falling-damage paths. Both weapon choices share
+the Quake self-damage values, with Halo shields and damage immunities retained.

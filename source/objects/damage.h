@@ -37,6 +37,8 @@ enum
 	_damage_bypasses_shields_bit,
 	_damage_damaged_one_object_bit,
 	_damage_no_statistics_bit,
+	_damage_quake_blast_bit, /* port: one Quake radial projectile blast */
+	_damage_quake_fall_bit, /* port: fixed five-point Quake landing harm */
 	NUMBER_OF_DAMAGE_DATA_FLAGS,
 };
 

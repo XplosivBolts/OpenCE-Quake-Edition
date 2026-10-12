@@ -276,6 +276,7 @@ symbols in this file:
 #include "scenario/scenario.h"
 #include "structures/structure_bsp_definitions.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "quake_movement.h" /* port: port/linux/game/quake_movement.c */
 
 /* port: port/linux/game/network_objects.c's (a client deletes the host's
 objects on the host's word alone) */
@@ -432,6 +433,12 @@ struct biped_physics
 	real_vector3d new_velocity;
 	real landing_velocity;
 	real collision_velocity;
+	/* port: Quake movement's Halo speed limits, in world units per tick */
+	real quake_speed_limit;
+	real quake_jump_velocity;
+	boolean quake_jump;
+	boolean quake_stunned;
+	boolean quake_jumped;
 };
 
 struct animation_frame_info_dx_dy
@@ -630,7 +637,12 @@ void biped_reset(
 	long biped_index)
 {
 	struct biped_datum *biped = biped_get(biped_index);
+	/* port: a reset/reposition of the same object is not a new life */
+	unsigned long physics_style = biped->biped.flags &
+		(FLAG(_biped_quake_style_set_bit) | FLAG(_biped_quake_style_bit) |
+		FLAG(_biped_quake_weapons_set_bit) | FLAG(_biped_quake_weapons_bit));
 	csmemset(&biped->biped, 0, sizeof(biped->biped));
+	biped->biped.flags |= physics_style;
 	biped->biped.ground_plane = depths_of_hell;
 	biped->biped.last_falling_communication_time = NONE;
 
@@ -803,6 +815,27 @@ static void biped_falling_damage(
 		TEST_FLAG(biped->unit.flags, _unit_no_falling_damage_bit) ||
 		TEST_FLAG(definition->biped.flags, _biped_immune_to_falling_damage_bit);
 	real falling_velocity = biped->object.translational_velocity.k;
+
+	/* port: Quake checks grounded vertical impact speed, with fixed harm and no midair kill */
+	if (quake_player_active(biped_index))
+	{
+		if (!immune && !cheat.jetpack &&
+			!TEST_FLAG(biped->biped.flags, _biped_airborne_bit) &&
+			quake_fall_points(collision_velocity, scenario_location_underwater(
+				&biped->object.location, &biped->object.position, NULL)) > 0.f &&
+			falling_damage->falling_damage.index != NONE)
+		{
+			struct damage_data damage;
+
+			damage_data_new(&damage, falling_damage->falling_damage.index);
+			SET_FLAG(damage.flags, _damage_quake_fall_bit, TRUE);
+			damage.scale = 1.f;
+			damage.origin = damage.epicenter = biped->object.position;
+			damage.location = biped->object.location;
+			object_cause_damage(&damage, biped_index, NONE, NONE, NONE, NULL);
+		}
+		return;
+	}
 
 	if (!cheat.jetpack || biped->unit.player_index == NONE)
 	{
@@ -1855,8 +1888,9 @@ static boolean biped_jump(
 	struct biped_definition *definition = biped_definition_get(biped->definition_index);
 	boolean jumped = FALSE;
 
+	/* port: players jump before friction, without Halo's landing lockout */
 	if (!TEST_FLAG(biped->biped.flags, _biped_airborne_bit) &&
-		biped->biped.landing!=1)
+		(biped->biped.landing!=1 || quake_player_active(biped_index)))
 	{
 		long actor_index;
 		real_vector3d jump_velocity;
@@ -1864,6 +1898,8 @@ static boolean biped_jump(
 
 		jumped = TRUE;
 		jump_magnitude = definition->biped.jump_velocity;
+		if (quake_player_active(biped_index)) /* port: Quake baseline, then Halo stun/powerups */
+			jump_magnitude = quake_player_jump_velocity();
 		if (biped->unit.player_index!=NONE)
 		{
 			struct game_globals_player_information *player_information =
@@ -1879,6 +1915,13 @@ static boolean biped_jump(
 			jump_magnitude *= 4.f;
 
 		jump_velocity = biped->object.translational_velocity;
+		if (quake_player_active(biped_index))
+		{
+			/* port: retain horizontal and explosion momentum */
+			jump_velocity.k += jump_magnitude;
+			biped->biped.landing = NONE;
+		}
+		else
 		{
 			real upward_velocity =
 				jump_velocity.i*biped->object.up.i +
@@ -1898,7 +1941,7 @@ static boolean biped_jump(
 		actor_index = biped->unit.swarm_actor_index;
 		if (actor_index==NONE)
 			actor_index = biped->unit.actor_index;
-		if (actor_index!=NONE)
+		if (actor_index!=NONE && !quake_player_active(biped_index)) /* port: player input owns its jump */
 		{
 			boolean leap = biped->unit.animation.state==_unit_state_leap_start ||
 				biped->unit.animation.state==_unit_state_leap_airborne;
@@ -1923,6 +1966,24 @@ static boolean biped_jump(
 	}
 
 	return jumped;
+}
+
+/* port: input-driven jumping before friction, shared by every machine */
+static void biped_quake_update_jump(
+	long biped_index)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+
+	if (quake_player_active(biped_index))
+	{
+		if (!TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit))
+			SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, FALSE);
+		else if (!TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit) &&
+			biped_jump(biped_index))
+			SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, TRUE);
+	}
+	else
+		SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, FALSE);
 }
 
 static void biped_update_dead(
@@ -2218,7 +2279,9 @@ static void biped_update_jumping(
 	struct biped_datum *biped = biped_get(biped_index);
 
 	biped_definition_get(biped->definition_index);
-	if (!TEST_FLAG(biped->biped.flags, _biped_airborne_bit) &&
+	/* port: Quake players already checked jump before this tick's move */
+	if (!quake_player_active(biped_index) &&
+		!TEST_FLAG(biped->biped.flags, _biped_airborne_bit) &&
 		biped->biped.landing != 1)
 	{
 		if (biped->biped.jump_recovery_timer < SCHAR_MAX)
@@ -2368,13 +2431,26 @@ static void biped_update_physics(
 	struct collision_plane collisions[16];
 	short collision_count;
 	unsigned long collision_flags;
+	/* port: tagged ladders retain Halo's support/adhesion handling */
+	boolean quake = quake_player_active(physics->biped_index) &&
+		!TEST_FLAG(biped_get(physics->biped_index)->biped.flags, _biped_quake_halo_climbing_bit);
+	struct quake_motion motion;
 
 	match_assert_valid_real_point3d("c:\\halo\\SOURCE\\units\\bipeds.c", 0xBCC, &physics->position);
 	match_assert_valid_real_vector3d("c:\\halo\\SOURCE\\units\\bipeds.c", 0xBCD, &physics->velocity);
 
 	in_flags = physics->in_flags;
 	physics->out_flags = 0;
-	if (TEST_FLAG(in_flags, _biped_physics_in_flying_bit))
+	/* port: Quake velocity and motion use Halo capsule queries and contacts */
+	if (quake)
+	{
+		facing.i = physics->movement_desired.i * physics->forward.i -
+			physics->forward.j * physics->movement_desired.j;
+		facing.j = physics->movement_desired.j * physics->forward.i +
+			physics->movement_desired.i * physics->forward.j;
+		physics->new_velocity = physics->velocity;
+	}
+	else if (TEST_FLAG(in_flags, _biped_physics_in_flying_bit))
 	{
 		real_vector3d up;
 		real_vector3d left;
@@ -2615,6 +2691,46 @@ static void biped_update_physics(
 		clipped_velocity.k = 0.f;
 		collision_count = 1;
 	}
+	else if (quake)
+	{
+		/* port: retain Halo's crouch capsule/displacement, plasma stun and
+		contacts, with QuakeWorld motion at three substeps per world tick */
+		struct biped_datum *biped = biped_get(physics->biped_index);
+
+		csmemset(&motion, 0, sizeof(motion));
+		motion.biped_index = physics->biped_index;
+		motion.collision_flags = collision_flags;
+		motion.position = position;
+		motion.velocity = physics->velocity;
+		motion.wish.i = facing.i;
+		motion.wish.j = facing.j;
+		motion.height = physics->height;
+		motion.radius = physics->width;
+		motion.speed_limit = physics->quake_speed_limit;
+		motion.crouch_velocity = physics->crouch_velocity;
+		motion.stunned = physics->quake_stunned;
+		motion.ground_stun_acceleration = physics->acceleration_maximum;
+		motion.air_stun_acceleration = physics->airborne_acceleration_maximum;
+		motion.jump = physics->quake_jump;
+		motion.jump_velocity = physics->quake_jump_velocity;
+		motion.airborne = TEST_FLAG(in_flags, _biped_physics_in_airborne_bit);
+		quake_motion_halo(&motion);
+		physics->quake_jumped = motion.jumped;
+		clipped_position = motion.position;
+		clipped_velocity = motion.velocity;
+		/* port: the common crouch bookkeeping below subtracts this once */
+		clipped_velocity.k += physics->crouch_velocity;
+		collision_count = motion.collision_count;
+		csmemcpy(collisions, motion.collisions, collision_count * sizeof(*collisions));
+		if (motion.jumped)
+		{
+			SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, TRUE);
+			biped->biped.jump_recovery_timer = 0;
+			biped->biped.landing = NONE;
+			biped_make_footstep(physics->biped_index, _material_effect_biped_jump, 0);
+			biped_make_footstep(physics->biped_index, _material_effect_biped_jump, 1);
+		}
+	}
 	else
 	{
 		collision_count = collision_move_pill(
@@ -2643,7 +2759,7 @@ static void biped_update_physics(
 
 	SET_FLAG(physics->out_flags, _biped_physics_out_splatter_bit, collision_count >= 16);
 	physics->stick_surface_index = NONE;
-	if (!collision_count && physics->existing_support_surface_index != NONE)
+	if (!quake && !collision_count && physics->existing_support_surface_index != NONE) /* port: Quake categorizes its own support */
 	{
 		struct collision_bsp *bsp = global_collision_bsp_get();
 		long best_surface_index = NONE;
@@ -2948,6 +3064,17 @@ static void biped_update_physics(
 		}
 	}
 
+	/* port: authoritative support from Quake's one-unit probe, not Halo's
+	slope adhesion/steep-surface classification. Contacts still serve bumps. */
+	if (quake && !debug_biped_skip_collision && !quake_motion_climbable(&motion))
+	{
+		SET_FLAG(physics->out_flags, _biped_physics_out_airborne_bit, motion.airborne);
+		SET_FLAG(physics->out_flags, _biped_physics_out_slipping_bit, FALSE);
+		physics->ground_plane = motion.airborne ? depths_of_hell : motion.ground.plane;
+		physics->support_surface_index = motion.airborne ? NONE : motion.ground.surface_index;
+		physics->landing_velocity = motion.landing_velocity;
+	}
+
 	{
 		long bumped_object_index = NONE;
 		short bumped_object_type;
@@ -3027,6 +3154,19 @@ static void biped_update_physics(
 		physics->collision_velocity = magnitude3d(&velocity_delta);
 	}
 	physics->new_velocity.k -= physics->crouch_velocity;
+	/* port: keep the style choice (and Quake blasts) while a tagged ladder
+	uses Halo movement. Re-enter Quake motion once its contacts end. */
+	{
+		short contact;
+		boolean climbing_surface = FALSE;
+
+		for (contact = 0; contact < collision_count; ++contact)
+			if (TEST_FLAG(collisions[contact].flags, _collision_surface_climbable_bit) &&
+				collisions[contact].plane.n.k < 0.7f)
+				climbing_surface = TRUE;
+		SET_FLAG(biped_get(physics->biped_index)->biped.flags, _biped_quake_halo_climbing_bit,
+			quake_player_style(physics->biped_index) && climbing_surface);
+	}
 
 	if (TEST_FLAG(physics->in_flags, _biped_physics_in_crouched_bit) &&
 		TEST_FLAG(physics->in_flags, _biped_physics_in_trying_to_stand_bit))
@@ -3539,6 +3679,15 @@ static void biped_update_moving(
 
 	definition = biped_definition_get(biped->definition_index);
 	physics.biped_index = biped_index;
+	/* port: QuakeWorld's release latch and jump-before-friction order;
+	no new per-object storage or local-player-only state is needed */
+	biped_quake_update_jump(biped_index);
+	physics.quake_speed_limit = 0.f;
+	physics.quake_jump = TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit) &&
+		!TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit);
+	physics.quake_jump_velocity = quake_player_jump_velocity();
+	physics.quake_stunned = biped->unit.body_stun > _real_epsilon;
+	physics.quake_jumped = FALSE;
 	physics.in_flags = 0;
 	physics.forward = biped->object.forward;
 	if (TEST_FLAG(definition->unit.flags, _unit_simple_creature_bit))
@@ -3567,7 +3716,7 @@ static void biped_update_moving(
 	physics.ground_tangential_angle = 0.f;
 	physics.existing_support_surface_index = biped->biped.support_surface_index;
 
-	if (biped->biped.landing == 1)
+	if (biped->biped.landing == 1 && !quake_player_active(biped_index)) /* port: no landing movement lockout */
 	{
 		physics.movement_desired.i = 0.f;
 		physics.movement_desired.j = 0.f;
@@ -3817,6 +3966,22 @@ static void biped_update_moving(
 					player_information->sneak_sideways_speed * crouch;
 				acceleration = player_information->run_acceleration * uncrouch +
 					player_information->sneak_acceleration * crouch;
+				if (quake_player_active(biped_index))
+				{
+					/* port: symmetric Quake run speed, with Halo crouch ratios,
+					injury stun, speed modifiers and aiming penalties retained */
+					real native_forward = biped->unit.throttle.i <= 0.f ?
+						player_information->run_backward_speed : player_information->run_forward_speed;
+					real sneak_forward = biped->unit.throttle.i <= 0.f ?
+						player_information->sneak_backward_speed : player_information->sneak_forward_speed;
+
+					forward_speed = quake_movement_crouch_speed(native_forward, sneak_forward, crouch) * TICKS_PER_SECOND;
+					sideways_speed = quake_movement_crouch_speed(player_information->run_sideways_speed,
+						player_information->sneak_sideways_speed, crouch) * TICKS_PER_SECOND;
+					physics.quake_jump_velocity *= 1.f - biped->unit.body_stun * player_information->stun_turning_penalty;
+					if (cheat.super_jump)
+						physics.quake_jump_velocity *= 4.f;
+				}
 				if (biped->unit.animation.base_seat_index == _unit_base_seat_alert)
 				{
 					forward_speed = biped->unit.throttle.i <= 0.f ?
@@ -3834,6 +3999,9 @@ static void biped_update_moving(
 				physics.movement_desired.k = 0.f;
 				physics.airborne_acceleration_maximum =
 					player_information->airborne_acceleration / TICKS_PER_SECOND;
+				/* port: cap desired diagonal speed; retain accumulated momentum */
+				physics.quake_speed_limit = MAX(forward_speed, sideways_speed) *
+					MAX(stun_scale, 0.f) / TICKS_PER_SECOND;
 				if (!TEST_FLAG(
 					biped->unit.control_flags,
 					_unit_control_look_dont_turn_bit))
@@ -3847,6 +4015,8 @@ static void biped_update_moving(
 						&physics.movement_desired,
 						player_information->double_speed_multiplier,
 						&physics.movement_desired);
+					/* port: the powerup changes desired speed, not accumulated momentum */
+					physics.quake_speed_limit *= player_information->double_speed_multiplier;
 				}
 			}
 		}
@@ -4043,7 +4213,7 @@ static void biped_update_moving(
 				_biped_passes_through_bipeds_bit));
 
 		biped->biped.ground_plane = physics.ground_plane;
-		if (physics.landing_velocity > 0.f)
+		if (physics.landing_velocity > 0.f && !physics.quake_jumped) /* port: a buffered jump keeps flight animation, but fall damage still sees the impact */
 			biped_start_landing(biped_index, physics.landing_velocity);
 		if (!TEST_FLAG(out_flags, _biped_physics_out_cannot_stand_bit))
 			biped_update_jumping(biped_index, animation);
@@ -4160,6 +4330,11 @@ boolean biped_new(
 
 	biped->biped.ground_plane = depths_of_hell;
 	biped->biped.jump_recovery_timer = 127;
+	SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, FALSE); /* port: a new life's jump latch */
+	/* port: each new life takes this player's pending physics selection */
+	SET_FLAG(biped->biped.flags, _biped_quake_style_set_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_style_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_halo_climbing_bit, FALSE);
 	biped->biped.support_surface_index = NONE;
 	biped->biped.pathfinding_surface_index = NONE;
 	object_get_origin(biped_index, &biped->biped.pathfinding_point);
@@ -4320,6 +4495,7 @@ boolean biped_update(
 		biped_update_moving(biped_index, &animation);
 		biped_verify_object_vectors(biped_index, "post-moving");
 
+
 		if (TEST_FLAG(biped->object.damage_flags, _object_dead_bit))
 		{
 			biped_update_dead(biped_index, &animation);
@@ -4404,7 +4580,8 @@ boolean biped_update(
 		biped_check_discard(biped_index);
 	}
 
-	if (unit_update_animation(biped_index, &animation)==1)
+	if (unit_update_animation(biped_index, &animation)==1 &&
+		!quake_player_active(biped_index)) /* port: player jump is input-driven */
 		biped_jump(biped_index);
 
 	if (TEST_FLAG(biped->object.damage_flags, _object_dead_bit) &&

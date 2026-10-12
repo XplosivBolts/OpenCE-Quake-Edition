@@ -13,6 +13,7 @@ that draw the first-person weapon (rasterizer and render sources).
 
 #include "cseries.h"
 #include "view_fov.h"
+#include "quake_movement.h"
 #include "camera/director.h"
 #include "cutscene/cinematics.h"
 #include "game/players.h"
@@ -55,6 +56,7 @@ static real render_fov_adjust(short local_player_index, real native_vertical_fie
 	long unit_index, weapon_index;
 	struct unit_datum *unit;
 	real unzoomed_angle, unzoomed_tangent, native_tangent, adjusted_tangent;
+	real target_tangent;
 
 	if (!initialized || read_at != changes)
 	{
@@ -65,7 +67,8 @@ static real render_fov_adjust(short local_player_index, real native_vertical_fie
 		requested_tangent = degrees >= 20.0 && degrees <= 150.0 ?
 			(real)(tan(degrees * _pi / 360.0) * (9.0 / 16.0)) : 0.0f;
 	}
-	if (!requested_tangent || local_player_index < 0 || local_player_index >= MAXIMUM_LOCAL_PLAYERS ||
+	target_tangent = requested_tangent;
+	if (local_player_index < 0 || local_player_index >= MAXIMUM_LOCAL_PLAYERS ||
 		cinematic_in_progress() || (director_camera_scripted && *director_camera_scripted) ||
 		director_get_perspective(local_player_index) != _director_perspective_first_person ||
 		director_inhibited_facing(local_player_index))
@@ -78,6 +81,12 @@ static real render_fov_adjust(short local_player_index, real native_vertical_fie
 	unit = unit_try_and_get(unit_index);
 	if (!unit || unit->object.parent_object_index != NONE || TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
 		return native_vertical_field_of_view;
+	/* A stock/default FOV follows the selected physics: Quake's 90-degree
+	horizontal view at 4:3. Explicit user FOV and Halo scope zoom still win. */
+	if (!target_tangent && unit->object.type == _object_type_biped && quake_player_style(unit_index))
+		target_tangent = 0.75f;
+	if (!target_tangent)
+		return native_vertical_field_of_view;
 
 	unzoomed_angle = unit_definition_get(unit->definition_index)->unit.camera_field_of_view;
 	if (!(unzoomed_angle >= 0.001f && unzoomed_angle <= _pi / 2.0f) ||
@@ -87,10 +96,10 @@ static real render_fov_adjust(short local_player_index, real native_vertical_fie
 	}
 	unzoomed_tangent = 0.75f * render_camera_get_adjusted_field_of_view_tangent(unzoomed_angle);
 	native_tangent = tanf(native_vertical_field_of_view * 0.5f);
-	if (requested_tangent < unzoomed_tangent)
+	if (target_tangent < unzoomed_tangent)
 	{
 		/* (a view narrower than the stock one: the zoom narrows it further) */
-		adjusted_tangent = native_tangent * (requested_tangent / unzoomed_tangent);
+		adjusted_tangent = native_tangent * (target_tangent / unzoomed_tangent);
 	}
 	else
 	{
@@ -117,7 +126,7 @@ static real render_fov_adjust(short local_player_index, real native_vertical_fie
 		}
 		if (blend == 0.0f)
 			return native_vertical_field_of_view;
-		adjusted_tangent = native_tangent + (requested_tangent - unzoomed_tangent) * blend;
+		adjusted_tangent = native_tangent + (target_tangent - unzoomed_tangent) * blend;
 	}
 	return 2.0f * atanf(adjusted_tangent);
 }

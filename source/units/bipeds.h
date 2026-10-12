@@ -22,6 +22,12 @@ enum
 	_biped_no_collision_bit,
 	_biped_movement_passes_through_bipeds_bit,
 	_biped_limp_body_physics_active_bit,
+	_biped_quake_jump_held_bit, /* port: jump release latch; keeps the datum's layout */
+	_biped_quake_style_set_bit, /* port: physics selected for this life */
+	_biped_quake_style_bit, /* port: Quake rather than Halo physics */
+	_biped_quake_weapons_set_bit, /* port: weapon behavior selected for this life */
+	_biped_quake_weapons_bit, /* port: Quake rocket/frag behavior */
+	_biped_quake_halo_climbing_bit, /* port: retain Halo's tagged ladder handling */
 };
 
 /* ---------- macros */

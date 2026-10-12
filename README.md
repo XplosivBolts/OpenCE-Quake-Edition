@@ -12,6 +12,93 @@ Windows, Android and web browsers. The decompilation is of the Xbox build 2342
 The port starts from the decompilation of [bnunu/halo-1](https://github.com/bnunu/halo-1).
 That project is a fork of [punpckhdq/halo](https://github.com/punpckhdq/halo).
 
+## Quake Edition movement
+
+Controls Setup > Show: Movement has a Physics spinner beneath Crouch:
+**Halo CE** (default) or **Quake 1**. Left/right and the arrow buttons cycle
+the choices like Show. OK applies and saves the choice; Cancel discards it;
+Defaults restores Halo CE. It controls movement, jump/gravity changes and
+blast momentum (`game.quake_physics`, default false). Self damage uses the
+same rocket/frag formula independently of the two selectors.
+In network games each player chooses their own physics. Halo CE and Quake 1
+players can share a match. The host confirms each player's active style and
+shares it with clients, including late joiners. Changes while playing apply
+on the next respawn; the current life keeps its style. Split-screen players
+have separate choices, selected by the local player opening Controls
+(`game.quake_physics_player2`, `player3`, `player4` for the other slots).
+Controls Setup > Movement also has **Rocket/Grenade** directly below Physics:
+**Halo CE** by default, or **Quake 1** (`game.quake_weapons`). This independently
+selects rocket/frag launch, flight, grenade bounce/fuse and blast range.
+All Quake distances, speeds and accelerations share 80 Quake units per Halo
+world unit, matching the standing collider's width and height. Rocket/grenade
+origins are 40/56 and 24/56 of the current body height, following the crouch blend; rockets add
+8 scaled units forward. Grenades live 2.5 seconds from
+release; rockets expire after 5 seconds without an explosion. Nearby
+geometry clips the spawn offset so shots cannot originate beyond a wall. Both
+choices retain the same rocket/frag self damage, with Halo shields. Normal
+ammunition and animations remain.
+Network players choose independently, with changes applied on respawn.
+
+Quake 1 mode uses QuakeWorld's movement order and slide/step rules, with one
+conversion: 80 Quake units per Halo world unit. Normal running is 320 Quake
+units/s (4 world units/s), jump impulse is 270 units/s (3.375 world units/s)
+and gravity is 800 units/s squared (10 world units/s squared). The old
+CE-jump-height compensation is removed. Movement runs at 90 Hz, three
+substeps per 30 Hz world tick. Input and network state still update at 30 Hz.
+
+The solver includes directional acceleration, ground/edge friction, the
+30-unit air directional cap, four-bump/five-plane sliding, crease clipping,
+18-unit stairs and one-unit ground probes with a 0.7 walkable normal limit.
+Jump is checked before friction, including after landing within a tick.
+The release latch prevents automatic repeated jumps after a successful jump.
+Ground probes resolve incoming velocity when snapping the Halo capsule onto
+support, so buffered jumps do not inherit downward fall velocity. Incoming
+landing speed is retained for Halo fall damage even on a buffered jump. The former
+approximate NetQuake wall-friction hook is removed. Velocity has Quake's
+2000-unit/s per-axis safety limit, not a cap at normal running speed.
+
+Halo's capsule dimensions, crouch transitions, airborne crouch displacement,
+stand-clearance checks, tagged ladder handling and crouched speed ratios remain. Plasma-rifle injury
+stun retains Halo steering, turning and jump penalties; Halo speed modifiers
+and powerups remain. AI, vehicles, dead bodies, flying/climbing units,
+attached units, cinematics and scripted movement keep their original paths.
+
+Rocket/grenade blast momentum uses raw Quake splash points times 8 before
+armor/shields. Splash starts at 120 points, subtracts half the distance,
+queries a 160-unit radius, and halves self damage. Falloff uses the Quake
+box center (28 units above feet); direction uses its origin (24 units above
+feet). All distances and impulses use the same world scale. One full Halo
+body-health bar represents 100 Quake points; Halo shields remain. The Rocket/Grenade selector preserves Halo weapon flight/fuse/bounce/range by
+default, or selects the independently implemented Quake projectile parameters
+and five-ray blast obstruction check. Damage to other targets follows Quake
+splash points in that weapon mode, while Halo shields remain. Blast momentum is independent of the
+damage-effect acceleration magnitude and eventual health loss.
+
+With display.fov = 0, Quake players get Quake's 90-degree horizontal view at
+4:3 (73.74 degrees vertically, widened for other aspect ratios). Explicit
+FOV settings, Halo scope zoom, eye/crouch camera heights, bob and weapon
+animations remain. CE players retain their stock default view.
+
+The implementation is independent C code in `port/linux/game/quake_movement.c`.
+Behavioral references are id Software's [movement equations](https://github.com/id-Software/Quake/blob/master/WinQuake/sv_user.c),
+[QuakeWorld player movement](https://github.com/id-Software/Quake/blob/master/QW/client/pmove.c),
+and [damage logic](https://github.com/id-Software/Quake-Tools/blob/master/qcc/v101qc/combat.qc).
+No Quake source is vendored or copied into this repository.
+
+The motion pipeline is in `port/linux/game/quake_motion.c`; Halo collision
+features supply traces, capsule overlap repair and dynamic object contacts.
+Elevator bookkeeping remains Halo's. Quake-mode falls deal a fixed five points
+when grounded after descending faster than 650 Quake units/s; ordinary-water
+landings are exempt. Halo shields and immunities remain. Quake mode does not
+apply Halo's midair fall-speed kill rule. This is a compatible
+Quake movement mode, not an exact reproduction of Quake box-hull corner,
+water or framerate-dependent input quirks. Live gameplay tuning is ongoing.
+
+Network version 39 is required for this physics implementation. Each player can
+select movement and rocket/frag behavior independently; the host confirms the
+active choices and retains authority over velocity and damage. The release
+contains production gameplay code and standard runtime files.
+
 ## Download
 
 GitHub Actions builds the game for each commit. These links download the
@@ -19,10 +106,10 @@ builds of the latest release:
 
 | Platform | Release | Debug |
 | --- | --- | --- |
-| Linux | [halo-linux-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-linux-debug.zip) |
-| Windows | [halo-windows-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-windows-debug.zip) |
-| Android | [halo-android-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-android-debug.zip) |
-| Web | [halocombatevolved.com](https://halocombatevolved.com/) (or [halo-web-release.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-web-release.zip) for your own server) | [halo-web-debug.zip](https://github.com/OpenCommunityEdition/OpenCE/releases/latest/download/halo-web-debug.zip) |
+| Linux | [halo-linux-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-linux-debug.zip) |
+| Windows | [halo-windows-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-windows-debug.zip) |
+| Android | [halo-android-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-android-debug.zip) |
+| Web | [halocombatevolved.com](https://halocombatevolved.com/) (or [halo-web-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-web-release.zip) for your own server) | [halo-web-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-web-debug.zip) |
 
 Use the release build to play. The debug build stops at the first failed
 assertion and writes it to the log. Use the debug build to find and report
