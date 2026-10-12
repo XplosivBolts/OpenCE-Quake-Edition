@@ -8,6 +8,9 @@ header included in hcex build.
 #define __HUD_H
 #pragma once
 
+/* port: independent local HUD preference, shared with Controls Setup. */
+char const *hud_speedometer_setting(short local_player_index);
+
 /* ---------- constants */
 
 /* ---------- macros */

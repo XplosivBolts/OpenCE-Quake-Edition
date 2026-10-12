@@ -1008,6 +1008,7 @@ allies' if it shows only friends (game_engine_draw_object_in_motion_sensor). */
 /* the platform layer's (port/linux/src/port_config.c) */
 const char *config_string(const char *name);
 double config_real(const char *name);
+int config_boolean(const char *name);
 unsigned long config_changes(void);
 /* port/linux/game/network_voice.c's: a player talking in voice chat (its
 machine), and its speaker drawn */
@@ -1389,6 +1390,41 @@ static void temporary_hud_draw(
 	return;
 }
 
+/* port: horizontal movement speed, using the nav-point HUD's metre scale.
+   The object's velocity is WU per engine tick, including Quake substeps. */
+char const *hud_speedometer_setting(short local_player_index)
+{
+	static char const *names[] = { "display.speedometer", "display.speedometer_player2",
+		"display.speedometer_player3", "display.speedometer_player4" };
+	return names[local_player_index >= 0 && local_player_index < 4 ? local_player_index : 0];
+}
+
+static void hud_draw_speedometer(struct player_datum const *player)
+{
+	long font_index;
+	real_vector3d velocity;
+	real speed;
+	real_argb_color color = *global_real_argb_white;
+	rectangle2d bounds;
+	wchar_t text[32];
+	short height;
+
+	if (cinematic_in_progress() || !config_boolean(hud_speedometer_setting(player->local_player_index)))
+		return;
+	font_index = hud_get_font_index();
+	if (font_index == NONE)
+		return;
+	object_get_velocities(player->unit_index, &velocity, NULL);
+	speed = square_root(velocity.i * velocity.i + velocity.j * velocity.j) * 30.0f * 3.0480001f;
+	usnprintf(text, NUMBEROF(text) - 1, L"%.1f m/s", speed);
+	text[NUMBEROF(text) - 1] = 0;
+	height = (short)(render.camera.window_bounds.y1 - render.camera.window_bounds.y0);
+	bounds = render.camera.window_bounds;
+	bounds.y0 = (short)((bounds.y0 + bounds.y1) / 2 + height / 15);
+	draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
+	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, text);
+}
+
 void hud_draw_screen(
 	void)
 {
@@ -1434,6 +1470,7 @@ void hud_draw_screen(
 				hud_render_unit_interface(player);
 				hud_render_nav_points(render.local_player_index);
 				hud_render_damage_indicators(render.local_player_index);
+				hud_draw_speedometer(player);
 			}
 			else
 			{

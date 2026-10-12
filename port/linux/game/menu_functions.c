@@ -83,6 +83,7 @@ their handlers open opens.
 #include "custom_edition_maps.h"
 #include "network_voice.h"
 #include "quake_movement.h"
+#include "interface/hud.h" /* port: per-local-player speed display setting */
 #include "text/draw_string.h"
 /* (internet play's server browser: the platform layer's) */
 #include "../src/p2p.h"
@@ -405,6 +406,8 @@ static boolean setting_write(char const *name, char const *value)
 metadata: different controllers can have different pending choices. */
 static char const *setting_name(struct widget_instance *widget, struct pc_menu_setting *setting)
 {
+	if (!strcmp(setting->setting, "display.speedometer"))
+		return hud_speedometer_setting(controller_of(widget));
 	if (!strncmp(setting->setting, "game.quake_weapons", 18))
 		return quake_weapons_setting(controller_of(widget));
 	return !strncmp(setting->setting, "game.quake_physics", 18) ?
@@ -2084,7 +2087,8 @@ static short controls_group(struct widget_instance *screen)
 {
 	struct widget_instance *spinner = named(screen, "group_spinner", 0);
 
-	return spinner ? spinner->parameters.list.selected_index : 0;
+	/* port: Physics precedes the three existing binding groups. */
+	return spinner ? spinner->parameters.list.selected_index - 1 : NONE;
 }
 
 /* "controls begin binding" (A on a row): the next key or button pressed */
@@ -2144,17 +2148,23 @@ static void controls_update(struct widget_instance *list)
 	struct widget_instance *focused_row = control_row(list->focused_child);
 	struct widget_instance *physics = named(list, "op_physics", 0);
 	struct widget_instance *weapons = named(list, "op_weapons", 0);
+	struct widget_instance *speedometer = named(list, "op_speedometer", 0);
 
 	if (physics)
 	{
-		physics->visible = group == 0;
+		physics->visible = group == NONE;
 		if (!physics->visible && list->focused_child == physics)
 			focus_row(list, 0);
 	}
 	if (weapons)
 	{
-		weapons->visible = group == 0;
+		weapons->visible = group == NONE;
 		if (!weapons->visible && list->focused_child == weapons) focus_row(list, 0);
+	}
+	if (speedometer)
+	{
+		speedometer->visible = group == NONE;
+		if (!speedometer->visible && list->focused_child == speedometer) focus_row(list, 0);
 	}
 	control_capture_poll();
 	for (row = list->child; row; row = row->next)
@@ -2195,7 +2205,7 @@ static void controls_update(struct widget_instance *list)
 	{
 		list->parameters.list.extended_description->parameters.text_box.string_list_index =
 			controls_screen.capturing_control != NONE ? 2 : list->focused_child == physics ?
-				(network_game_get_game() ? 4 : 3) : list->focused_child == weapons ? 5 : focused_row ? 1 : 0;
+				(network_game_get_game() ? 4 : 3) : list->focused_child == weapons ? 5 : list->focused_child == speedometer ? 6 : focused_row ? 1 : 0;
 	}
 }
 

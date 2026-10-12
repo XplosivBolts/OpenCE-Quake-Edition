@@ -309,7 +309,7 @@ static const struct config_setting config_settings[] =
 	{ "game.quake_physics", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS", _environment_value, _platform_all,
 		"Player physics: halo (default), netquake, quakeworld, quake2, or quake3.\n"
 		"Proportional motion and blasts retain Halo crouch jumps and stun.\n"
-		"Controls Setup > Movement > Physics selects it. Network games use\n"
+		"Controls Setup > Physics > Style selects it. Network games use\n"
 		"each player's choice; changes apply on that player's next respawn." },
 	{ "game.quake_physics_player2", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER2", _environment_value, _platform_all,
 		"The second local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
@@ -333,6 +333,18 @@ static const struct config_setting config_settings[] =
 		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
+	{ "display.speedometer", _config_boolean, "false", "HALO_SPEEDOMETER", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
+	{ "display.speedometer_player2", _config_boolean, "false", "HALO_SPEEDOMETER_PLAYER2", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
+	{ "display.speedometer_player3", _config_boolean, "false", "HALO_SPEEDOMETER_PLAYER3", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
+	{ "display.speedometer_player4", _config_boolean, "false", "HALO_SPEEDOMETER_PLAYER4", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
 	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
 		"The energy shield's flare on the first-person arms too, as on the body\n"
 		"(the stock game draws it on the body only)." },
