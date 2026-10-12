@@ -1,273 +1,44 @@
-# Halo: Combat Evolved for Linux, Windows, Android and the web
+# OpenCE Quake Edition
 
-[![Join our Discord](https://invidget.switchblade.xyz/9gqcHyr5km)](https://discord.gg/9gqcHyr5km)
+Forked from [OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE).
 
-This project is a port of the Halo: Combat Evolved decompilation to Linux,
-Windows, Android and web browsers. The decompilation is of the Xbox build 2342
-(`cachebeta.exe`, SHA-256
-`4cc87b45f721270392a96f1674ed2b5cd4a7bb4355faeab4531d1cf1884d9520`).
+## Change physics
 
-<img width="1289" height="995" alt="The game on Linux" src="https://github.com/user-attachments/assets/0d3ad50f-f8b8-46cf-aef8-e3661da2a7d7" />
+1. Open **Settings → Controls Setup** from the main menu or in-game pause menu.
+2. Controls Setup opens on **Movement**. Move the **Show** selector left once to **Physics**.
+3. Use left/right or the arrow buttons to change these options:
 
-The port starts from the decompilation of [bnunu/halo-1](https://github.com/bnunu/halo-1).
-That project is a fork of [punpckhdq/halo](https://github.com/punpckhdq/halo).
+   | Option | Choices |
+   | --- | --- |
+   | **Style** | Halo CE, NetQuake, QuakeWorld, Quake 2, Quake 3 |
+   | **Rocket/Grenade** | Halo CE, Quake 1, Quake 2, Quake 3 |
+   | **Speed Display** | Off, On — horizontal speed below the crosshair in m/s |
 
-## Quake Edition physics
+4. Select **OK** to save, or **Cancel** to discard changes. **Defaults** selects Halo CE for both styles and turns Speed Display off.
 
-Controls Setup > Show: Movement has two independent native scrolling selectors:
+Movement and rocket/grenade styles are independent. In multiplayer, each player
+can choose their own styles; changes take effect on their next respawn.
+Speed Display takes effect when saved.
 
-| Selector | Choices |
-| --- | --- |
-| Physics | Halo CE (default), NetQuake, QuakeWorld, Quake 2, Quake 3 |
-| Rocket/Grenade | Halo CE (default), Quake 1, Quake 2, Quake 3 |
+## Movement comparisons
 
-OK saves, Cancel discards, and Defaults selects Halo CE. Each local/split-screen
-player has separate preferences. Multiplayer players can mix profiles in one
-match; the host confirms active choices, with changes applied on respawn. Fired
-projectiles keep the weapon profile captured when they spawn.
+These graphs compare original-source movement simulations with the Halo solver
+using proportional measurements. Green traces are recorded Halo test-room
+ground-movement and standing-jump runs. Explosive-jump panels compare controlled
+blast responses; they exclude projectile flight, fuse timing and bounces.
 
-`game.quake_physics` accepts `halo`, `netquake`, `quakeworld`, `quake2`, or `quake3`.
-`game.quake_weapons` accepts `halo`, `quake1`, `quake2`, or `quake3`. The `_player2` through
-`_player4` keys select other local players. Existing boolean `true` physics
-settings migrate to QuakeWorld; `true` weapon settings migrate to Quake 1.
-Boolean false and unknown profile names select Halo CE. Environment variables
-retain their existing names and also accept these profile strings.
+### NetQuake
 
-All Quake lengths, speeds, accelerations and blast impulses use one height-based
-conversion: 80 Quake units per Halo world unit. Quake's 56-unit standing height
-maps to Halo's 0.7-world-unit body. Running is 300 units/s in Quake 2 and 320 otherwise, jump launch is 270,
-and gravity is 800 units/s squared. Halo collision capsules, airborne crouch
-jumps, ladders, elevators, plasma-rifle injury penalties, shields, damage immunity,
-speed modifiers, camera/bob and native animations remain.
+![NetQuake movement comparison](docs/images/netquake-standard-movement-tests.png)
 
-| Rule | NetQuake | QuakeWorld | Quake 3 |
-| --- | --- | --- | --- |
-| Movement schedule | 72 Hz | 72 Hz | Fixed 8 ms (125 Hz) |
-| Jump order | Ground friction/acceleration, then jump | Jump before friction | Jump before friction |
-| Ground acceleration | 10 | 10 | 10 |
-| Ground friction | 4 | 4 | 6 |
-| Air acceleration | 10 with 30-unit directional cap | 10 with 30-unit directional cap | 1 with full wish-speed target |
-| Jump vertical velocity | Add 270 | Add 270 | Set to 270 |
-| Gravity integration | Full step | Full step | Midpoint, deterministic integer velocity snapping |
-| Falling damage | Fixed 5 above 650 units/s | Fixed 5 above 650 units/s | Severity thresholds for 5/10 damage; crouching doubles severity |
+### QuakeWorld
 
-The host/world still ticks at 30 Hz. Deterministic substep schedules and heading
-interpolation improve turning within that constraint; this is compatible Halo
-movement, not a claim of identical native input timing, box-hull contacts, water,
-slick-surface or demo behavior. Q3 uses the retained Halo capsule shape/width.
-Ordinary-water landings remain exempt from Quake fall damage.
-
-| Rocket/frag parameter | Quake 1 | Quake 3 |
-| --- | --- | --- |
-| Rocket speed | 1000 | 900 |
-| Rocket lifetime | 5 seconds, remove | 15 seconds, explode |
-| Grenade launch | 600 forward + 200 up; pitch scatter | Normalize aim + 0.2 vertical, speed 700; integer velocity snap |
-| Grenade fuse | 2.5 seconds | 2.5 seconds |
-| Grenade bounce | Overclip 1.5; weak floor bounce stops | Reflect and damp every component by 0.65; stop below total speed 40 on supporting surfaces |
-| Launch height | Rocket 40/56, grenade 24/56 of current body | 50/56 of current body |
-| Forward muzzle offset | Rocket 8 | Both 14 |
-| Radial damage/force range | 160, center-distance falloff | Rocket 120 / grenade 150, nearest body-box distance |
-| Knockback | Raw splash points times 8, including Q1 self half | Pre-self-reduction integer points times 5; short Q3 control/friction protection |
-| Direct-hit damage | Retained existing Q1-compatible behavior | 100, followed by radial harm excluding the direct target |
-
-Both weapon selectors retain the same existing Quake 1 rocket/frag self-damage
-formula, with Halo shields. This intentional shared self-damage policy also
-applies to Quake 3; its knockback remains separate from vitality loss. Other
-weapons and plasma grenades keep their original projectile paths. Native Halo
-weapon flight, bounce/fuse and explosion range remain available independently.
-
-The implementation is independently written C. Behavioral references are
-[id Software's NetQuake movement](https://github.com/id-Software/Quake/blob/master/WinQuake/sv_user.c),
-[QuakeWorld movement](https://github.com/id-Software/Quake/blob/master/QW/client/pmove.c),
-[Quake 3 movement](https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/bg_pmove.c),
-[missiles](https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/g_missile.c)
-and [damage](https://github.com/id-Software/Quake-III-Arena/blob/master/code/game/g_combat.c).
-No Quake GPL source is copied into the production source or runtime package.
-Network version 40 is required. Release contents follow the upstream runtime
-layout; added map/demo tools, test maps, replay hooks and test launchers are excluded.
-
-## Download
-
-GitHub Actions builds the game for each commit. These links download the
-builds of the latest release:
-
-| Platform | Release | Debug |
-| --- | --- | --- |
-| Linux | [halo-linux-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-linux-release.zip) | [halo-linux-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-linux-debug.zip) |
-| Windows | [halo-windows-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-windows-release.zip) | [halo-windows-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-windows-debug.zip) |
-| Android | [halo-android-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-android-debug.zip) |
-| Web | [halocombatevolved.com](https://halocombatevolved.com/) (or [halo-web-release.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-web-release.zip) for your own server) | [halo-web-debug.zip](https://github.com/XplosivBolts/OpenCE-Quake-Edition/releases/latest/download/halo-web-debug.zip) |
-
-Use the release build to play. The debug build stops at the first failed
-assertion and writes it to the log. Use the debug build to find and report
-problems.
-
-The game updates itself. At start-up it looks for a newer release, and asks
-if you want to install it. Refer to "Updates" in
-[port/linux/README.md](port/linux/README.md#updates). The web site offers
-each new build when it is out.
-
-Each build of the `main` branch that passes on all four platforms is a new
-release, and the web site then plays it. The [Releases](https://github.com/OpenCommunityEdition/OpenCE/releases)
-page keeps the last five releases. If the latest build has a problem, get
-an older build from that page.
-
-## Game data
-
-The port does not include the game data. Download an Xbox disc image
-(`.xiso` or `.iso`) of Halo: Combat Evolved. All versions of the game
-operate. The maps of the European (PAL) version were made for a slower
-console. The port changes them to play as the North American (NTSC) maps do,
-so players of the two versions can play together.
-
-1. Start the game.
-2. At the first start, the game asks for the disc image. Select it.
-3. The game extracts the `maps/` folder. Then the game starts.
-
-On Linux and Windows, the game puts `maps/` next to the executable. On
-Android, copy the disc image to the phone first. The app puts `maps/` in its
-data folder. Refer to [port/android/README.md](port/android/README.md). On
-the web, the page copies `maps/` out of the disc image into the browser's
-storage for the site; nothing is uploaded. Refer to
-[port/web/README.md](port/web/README.md).
-
-## Platforms
-
-Each platform has its own instructions:
-
-| Platform | Instructions |
-| --- | --- |
-| Linux (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/linux/README.md](port/linux/README.md) |
-| Windows (32-bit x86 executable, OpenGL 4.5, SDL3) | [port/windows/README.md](port/windows/README.md) |
-| Android (arm64 app, OpenGL ES 3, SDL3) | [port/android/README.md](port/android/README.md) |
-| Web (WebAssembly, WebGL 2, SDL3; desktop Chrome, Edge and Firefox) | [port/web/README.md](port/web/README.md) |
-
-The Linux README also gives the controls, the settings and the multiplayer
-functions. These are almost the same on all platforms.
-
-## Multiplayer
-
-The game can play system link games on a local network and on the internet:
-
-- A system link game can have up to 128 players on up to 128 machines.
-- Linux, Windows and Android machines and browsers can play in the same
-  game. On a local network, the native builds play system link; browsers
-  play each other in rooms, over WebRTC
-  ([port/web/README.md](port/web/README.md)).
-- An invite link, or the server browser, lets a machine join a game on the
-  internet, browsers too: a native build takes a browser's WebRTC
-  ([port/linux/README.md](port/linux/README.md), "Browsers"). No server of
-  this project is necessary.
-- The netcode is new. Each machine moves its own player at once,
-  and the host makes the decisions for the game. Refer to
-  [port/linux/NETCODE.md](port/linux/NETCODE.md).
-
-## Build the game
-
-You do not need the Xbox SDK. The port supplies the SDK declarations that
-the game uses. Refer to [port/include/xdk](port/include/xdk/README.md).
-
-To build the game:
-
-1. Install Python and [ninja](https://ninja-build.org/).
-2. Install the tools for your platform. Refer to the README for the
-   platform.
-3. In the root folder of the repository, enter `python configure.py`.
-4. Enter `ninja` with the target for the platform:
-
-| Target | Result |
-| --- | --- |
-| `ninja linux` | `build/linux/halo` |
-| `ninja windows` (on Windows) | `build/windows/halo.exe` and `SDL3.dll` |
-| `ninja android_apk` | `port/android/app/build/outputs/apk/debug/app-debug.apk` |
-| `ninja web` | `build/web/site/`, the web site (`python tools/web_serve.py` serves it) |
-
-If you enter `ninja` without a target, ninja builds the game for the
-computer that you use.
-
-`tools/ci_build.py` makes the same builds as GitHub Actions. For example,
-enter `python tools/ci_build.py linux release`.
-
-### Build options
-
-Give these options to `configure.py`:
-
-| Option | Result |
-| --- | --- |
-| (none) | A debug build. A failed assertion stops the game. |
-| `--release` | A release build. The game does not examine assertions, as in the retail game. |
-| `--portable` | The Linux and Windows builds operate on all x86-64 processors. The Linux build also operates on older distributions and on SteamOS: refer to "Portable build" in [port/linux/README.md](port/linux/README.md#portable-build). Use this option for builds that you give to other persons. |
-| `--lto=thin`, `--lto=off` | Less link-time optimization. The link is faster. |
-| `--pgo=off` | No profile-guided optimization. |
-| `--pgo=train` | Records a new optimization profile. Refer to "Optimization profiles". |
-| `--profile` | A profiling build. It records CPU times. Refer to "Profiling builds". |
-| `--web-emcc PATH` | The Emscripten `emcc` for `ninja web` (else the one on the PATH, or `~/emsdk`'s). |
-
-Without `--portable`, the Linux and Windows builds use all the instructions
-of the processor that builds them (`-march=native`). Such a build does not
-always start on a different computer.
-
-### Optimization profiles
-
-The builds use profiles of the game to optimize the code:
-
-- `pgo/halo_linux.profdata` for Linux and Android.
-- `pgo/halo_windows.profdata` for Windows.
-
-The profiles need clang 22 or later. With an older clang, the builds do not
-use the profiles.
-
-To record a new profile:
-
-1. Delete the profile.
-2. Enter `python configure.py --pgo=train`.
-3. Enter `ninja linux` or `ninja windows`.
-
-The build then plays the main menu and the first minute of each campaign
-level. This procedure continues for approximately 15 minutes. The game
-data must be in `assets/`.
-
-### Profiling builds
-
-A profiling build records where the game spends its time.
-
-1. Enter `python configure.py --profile`, then build as usual.
-2. Start a recording. Enter `profile_record` in the console (or the telnet
-   console), or set `debug.profile_record = true` in `config.toml`. To
-   record each game of a session, also set
-   `debug.profile_record_when = "game"`.
-3. Stop the recording. Enter `profile_stop`, load another map, or quit.
-
-The game writes numbered `.part<n>.json` files under `profiles/` in its data root
-and logs their paths. Parts are retained after the recording stops. Logs go to
-standard error; a Windows release build without standard error writes them to
-`halo.log` next to `halo.exe`.
-
-`tools/net_report.py` is a helper for developers. Enter
-`python tools/net_report.py <recording.part1.json>` to read a recording
-as tables. The command also writes `<recording>.summary.txt`, a short text
-file.
-
-| Command | Result |
-| --- | --- |
-| `profile_record [seconds]` | Starts a recording. With a number of seconds, the recording stops after that time. |
-| `profile_stop` | Stops the recording. |
-
-`debug.profile_memory` sets the memory of a recording in MB (default 256,
-from 4 to 1024). A recording has no length limit:
-the game writes a part each time the memory is full. Refer to "Settings" in
-[port/linux/README.md](port/linux/README.md).
-
-On Android, the files are in `/sdcard/Android/data/com.halo.decomp/files/profiles/`.
-Enter `adb pull` to copy the recording parts to a computer.
-
-A profiling build plays with normal builds. It does not use
-`--pgo=train`.
+![QuakeWorld movement comparison](docs/images/quakeworld-standard-movement-tests.png)
 
 ### Quake 2
 
-Quake 2 is selectable between QuakeWorld and Quake 3 under Movement, with an independent Quake 2 Rocket/Grenade choice. Stock Q2 movement uses run speed 300, friction 6, ground/air acceleration 10/1, jump 270, gravity 800, eighth-unit quantization and landing timers. The port uses deterministic 90 Hz integer-millisecond reference commands while retaining the 30 Hz Halo input/world clock and Halo crouch/plasma mechanics.
+![Quake 2 movement comparison](docs/images/quake-2-standard-movement-tests.png)
 
-Q2 rocket speed is 650. Frag grenades emulate the Q2 grenade launcher (600 forward plus 200 up with native toss scatter, 2.5-second fuse and normal-only bounce). Both use original Q2 100 ms projectile updates and proportional muzzle/blast parameters. Shared Q1 self-damage and Halo shields remain. Network version 41 is required. See the settings documentation for compatibility limits.
+### Quake 3
 
-Behavioral references: [original Q2 Pmove](https://github.com/id-Software/Quake-2/blob/master/qcommon/pmove.c), [projectile physics](https://github.com/id-Software/Quake-2/blob/master/game/g_phys.c), [weapons](https://github.com/id-Software/Quake-2/blob/master/game/g_weapon.c), [blast damage](https://github.com/id-Software/Quake-2/blob/master/game/g_combat.c). No GPL implementation is copied into production.
+![Quake 3 movement comparison](docs/images/quake-3-standard-movement-tests.png)
