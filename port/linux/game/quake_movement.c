@@ -1,6 +1,6 @@
 /*
 Independent implementation of Quake 1's directional acceleration and
-friction equations, with Quake baselines at a shared proportional world scale.
+friction equations, using Halo's tagged movement speeds and gravity.
 Jump-before-friction follows QuakeWorld's player movement ordering. Halo's
 pill collision queries and support bookkeeping remain in bipeds.c.
 */
@@ -14,10 +14,28 @@ pill collision queries and support bookkeeping remain in bipeds.c.
 #include "game/players.h"
 
 int config_boolean(char const *name);
+char const *config_string(char const *name);
+long game_time_get(void);
+
+short quake_profile_parse(char const *text, boolean weapons)
+{
+	if (!text || !strcmp(text, "halo") || !strcmp(text, "false") || !strcmp(text, "0")) return 0;
+	if (!strcmp(text, "quake2")) return weapons ? _quake_weapons_quake2 : _quake_physics_quake2;
+	if (!strcmp(text, "quake3")) return weapons ? _quake_weapons_quake3 : _quake_physics_quake3;
+	if (!weapons && !strcmp(text, "netquake")) return _quake_physics_netquake;
+	if (!strcmp(text, "true") || !strcmp(text, "1") || !strcmp(text, "quake1") || !strcmp(text, "quakeworld")) return 1;
+	return 0;
+}
+char const *quake_profile_name(short profile, boolean weapons)
+{
+	static char const *const physics[] = { "halo", "quakeworld", "netquake", "quake3", "quake2" };
+	static char const *const weapon[] = { "halo", "quake1", "quake3", "quake2" };
+	return weapons ? weapon[PIN(profile, 0, 3)] : physics[PIN(profile, 0, 4)];
+}
 
 boolean quake_movement_local_enabled(void)
 {
-	return config_boolean("game.quake_physics") != 0;
+	return quake_profile_parse(config_string("game.quake_physics"), FALSE) != 0;
 }
 
 char const *quake_movement_setting(short local_player_index)
@@ -30,18 +48,26 @@ char const *quake_movement_setting(short local_player_index)
 	return settings[PIN(local_player_index, 0, MAXIMUM_LOCAL_PLAYERS - 1)];
 }
 
-boolean quake_movement_preference(short local_player_index)
+short quake_movement_preference(short local_player_index)
 {
-	return config_boolean(quake_movement_setting(local_player_index)) != 0;
+	return quake_profile_parse(config_string(quake_movement_setting(local_player_index)), FALSE);
 }
 
 struct quake_player_preference
 {
 	boolean valid;
 	boolean known;
-	boolean requested;
-	boolean weapons_known, weapons_requested;
+	short requested;
+	boolean weapons_known;
+	short weapons_requested;
 	long weapons_tick;
+	long knockback_unit, knockback_until;
+	long motion_unit, motion_tick;
+	long q2_land_unit;
+	short q2_land_time;
+	long q3_land_unit;
+	short q3_land_time;
+	real_vector3d motion_wish;
 	long player_index;
 	long tick;
 };
@@ -71,14 +97,14 @@ static struct quake_player_preference *quake_preference(long player_index)
 	return preference;
 }
 
-void quake_player_request(long player_index, long tick, boolean enabled)
+void quake_player_request(long player_index, long tick, short enabled)
 {
 	struct quake_player_preference *preference = quake_preference(player_index);
 
 	if (!preference || tick < 0 || tick <= preference->tick)
 		return;
 	preference->known = TRUE;
-	preference->requested = enabled != FALSE;
+	preference->requested = PIN(enabled, 0, 4);
 	preference->tick = tick;
 }
 
@@ -87,18 +113,25 @@ boolean quake_player_style_known(long biped_index)
 	return TEST_FLAG(biped_get(biped_index)->biped.flags, _biped_quake_style_set_bit);
 }
 
-void quake_player_set_style(long biped_index, boolean enabled)
+void quake_player_set_style(long biped_index, short enabled)
 {
 	struct biped_datum *biped = biped_get(biped_index);
+	enabled = PIN(enabled, 0, 4);
 
 	if (!quake_player_style_known(biped_index) ||
-		TEST_FLAG(biped->biped.flags, _biped_quake_style_bit) != enabled)
+		(TEST_FLAG(biped->biped.flags, _biped_quake_style_bit) | (TEST_FLAG(biped->biped.flags, _biped_quake_style_high_bit) << 1) | (TEST_FLAG(biped->biped.flags, _biped_quake_style_extra_bit) << 2)) != enabled)
+	{
 		SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, FALSE);
-	SET_FLAG(biped->biped.flags, _biped_quake_style_bit, enabled);
+		quake2_player_land_time(biped_index, 0, TRUE);
+		quake3_player_land_time(biped_index, 0, TRUE);
+	}
+	SET_FLAG(biped->biped.flags, _biped_quake_style_bit, enabled & 1);
+	SET_FLAG(biped->biped.flags, _biped_quake_style_high_bit, enabled & 2);
+	SET_FLAG(biped->biped.flags, _biped_quake_style_extra_bit, enabled & 4);
 	SET_FLAG(biped->biped.flags, _biped_quake_style_set_bit, TRUE);
 }
 
-boolean quake_player_style(long biped_index)
+short quake_player_style(long biped_index)
 {
 	struct biped_datum *biped = biped_get(biped_index);
 	struct player_datum *player = biped->unit.player_index != NONE ?
@@ -108,9 +141,13 @@ boolean quake_player_style(long biped_index)
 	if (!player)
 		return FALSE;
 	if (!network_game_get_game())
-		return quake_movement_preference(player->local_player_index);
+	{
+		short profile = quake_movement_preference(player->local_player_index);
+		quake_player_set_style(biped_index, profile);
+		return profile;
+	}
 	if (quake_player_style_known(biped_index))
-		return TEST_FLAG(biped->biped.flags, _biped_quake_style_bit);
+		return TEST_FLAG(biped->biped.flags, _biped_quake_style_bit) | (TEST_FLAG(biped->biped.flags, _biped_quake_style_high_bit) << 1) | (TEST_FLAG(biped->biped.flags, _biped_quake_style_extra_bit) << 2);
 	if (player->local_player_index != NONE)
 		quake_player_set_style(biped_index, quake_movement_preference(player->local_player_index));
 	else if (!network_game_distributed_client())
@@ -121,7 +158,7 @@ boolean quake_player_style(long biped_index)
 		if (preference && preference->known)
 			quake_player_set_style(biped_index, preference->requested);
 	}
-	return TEST_FLAG(biped->biped.flags, _biped_quake_style_bit);
+	return TEST_FLAG(biped->biped.flags, _biped_quake_style_bit) | (TEST_FLAG(biped->biped.flags, _biped_quake_style_high_bit) << 1) | (TEST_FLAG(biped->biped.flags, _biped_quake_style_extra_bit) << 2);
 }
 
 real quake_player_gravity(void)
@@ -132,6 +169,39 @@ real quake_player_gravity(void)
 real quake_player_speed(void)
 {
 	return 320.f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
+}
+
+real quake_player_profile_speed(short style)
+{
+	return (style == _quake_physics_quake2 ? 300.f : 320.f) * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
+}
+
+short quake2_player_land_time(long biped_index, short time, boolean write)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+	struct quake_player_preference *preference = quake_preference(biped->unit.player_index);
+	if (!preference) return 0;
+	if (preference->q2_land_unit != biped_index)
+	{
+		preference->q2_land_unit = biped_index;
+		preference->q2_land_time = 0;
+	}
+	if (write) preference->q2_land_time = PIN(time, 0, 25);
+	return preference->q2_land_time;
+}
+
+short quake3_player_land_time(long biped_index, short time, boolean write)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+	struct quake_player_preference *preference = quake_preference(biped->unit.player_index);
+	if (!preference) return 0;
+	if (preference->q3_land_unit != biped_index)
+	{
+		preference->q3_land_unit = biped_index;
+		preference->q3_land_time = 0;
+	}
+	if (write) preference->q3_land_time = PIN(time, 0, 250);
+	return preference->q3_land_time;
 }
 
 real quake_player_jump_velocity(void)
@@ -180,9 +250,10 @@ void quake_movement_step(real_vector3d *velocity, real_vector3d const *wish,
 		gravity, 1.f / TICKS_PER_SECOND);
 }
 
-void quake_movement_step_time(real_vector3d *velocity, real_vector3d const *wish,
-	real speed_limit, real reference_speed, boolean airborne, boolean edge, real gravity, real dt)
+void quake_movement_step_profile(real_vector3d *velocity, real_vector3d const *wish,
+	real speed_limit, real reference_speed, boolean airborne, boolean edge, real gravity, real dt, short style)
 {
+	boolean uncapped = style == _quake_physics_quake3 || style == _quake_physics_quake2;
 	real_vector3d direction = *wish;
 	real wish_speed;
 	real target_speed;
@@ -190,18 +261,20 @@ void quake_movement_step_time(real_vector3d *velocity, real_vector3d const *wish
 	real addition;
 	real acceleration;
 
-	direction.k = 0.f;
+	if (style != _quake_physics_quake3 || airborne) direction.k = 0.f;
 	wish_speed = normalize3d(&direction);
 	wish_speed = MIN(wish_speed, MAX(speed_limit, 0.f));
+	if (uncapped && (airborne ? magnitude3d(velocity) : square_root(velocity->i*velocity->i + velocity->j*velocity->j)) < QUAKE_WORLD_SCALE / TICKS_PER_SECOND)
+		velocity->i = velocity->j = 0.f;
 	if (!airborne)
 	{
-		real speed = magnitude3d(velocity);
-		real stop_speed = reference_speed * (100.f / 320.f);
+		real speed = style == _quake_physics_quake3 ? square_root(velocity->i * velocity->i + velocity->j * velocity->j) : magnitude3d(velocity);
+		real stop_speed = reference_speed * (100.f / (style == _quake_physics_quake2 ? 300.f : 320.f));
 
 		if (speed > 0.f)
 		{
 			real remaining = MAX(0.f, speed - MAX(speed, stop_speed) *
-				(4.f * dt) * (edge ? 2.f : 1.f));
+				((uncapped ? 6.f : 4.f) * dt) * (edge && !uncapped ? 2.f : 1.f));
 			real fraction = remaining / speed;
 
 			velocity->i *= fraction;
@@ -211,18 +284,25 @@ void quake_movement_step_time(real_vector3d *velocity, real_vector3d const *wish
 	}
 	/* The air target uses the capped speed; acceleration uses the full
 	input speed. Preserving that difference permits strafe speed gains. */
-	target_speed = airborne ? MIN(wish_speed, reference_speed * (30.f / 320.f)) : wish_speed;
-	current_speed = velocity->i * direction.i + velocity->j * direction.j;
+	target_speed = airborne && !uncapped ? MIN(wish_speed, reference_speed * (30.f / 320.f)) : wish_speed;
+	current_speed = velocity->i * direction.i + velocity->j * direction.j + (style == _quake_physics_quake3 ? velocity->k * direction.k : 0.f);
 	addition = target_speed - current_speed;
 	if (wish_speed > 0.f && addition > 0.f)
 	{
-		acceleration = MIN(addition, 10.f * dt * wish_speed);
+		acceleration = MIN(addition, (airborne && uncapped ? 1.f : 10.f) * dt * wish_speed);
 		velocity->i += direction.i * acceleration;
 		velocity->j += direction.j * acceleration;
+		if (style == _quake_physics_quake3) velocity->k += direction.k * acceleration;
 	}
 	/* Halo stores velocity and gravity as displacement per tick and
 	change in that displacement per tick, respectively. */
 	velocity->k -= gravity * dt * TICKS_PER_SECOND;
+}
+
+void quake_movement_step_time(real_vector3d *velocity, real_vector3d const *wish,
+	real speed_limit, real reference_speed, boolean airborne, boolean edge, real gravity, real dt)
+{
+	quake_movement_step_profile(velocity, wish, speed_limit, reference_speed, airborne, edge, gravity, dt, _quake_physics_quakeworld);
 }
 
 void quake_movement_halo_stun(real_vector3d *velocity, real_vector3d const *wish, real acceleration)
@@ -257,10 +337,27 @@ real quake_movement_blast_velocity(real distance, boolean self_damage)
 		8.f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
 }
 
+boolean quake_player_knockback(long biped_index)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+	struct quake_player_preference *preference = quake_preference(biped->unit.player_index);
+	return preference && preference->knockback_unit == biped_index && game_time_get() < preference->knockback_until;
+}
 void quake_player_blast(long biped_index, real_vector3d const *acceleration)
 {
 	struct biped_datum *biped = biped_get(biped_index);
+	if (magnitude3d(acceleration) == 0.f) return;
 
+	if (quake_player_style(biped_index) == _quake_physics_quake3 && !quake_player_knockback(biped_index) && !quake3_player_land_time(biped_index, 0, FALSE))
+	{
+		struct quake_player_preference *preference = quake_preference(biped->unit.player_index);
+		real points = magnitude3d(acceleration) / QUAKE_WORLD_SCALE * TICKS_PER_SECOND / 5.f;
+		if (preference)
+		{
+			preference->knockback_unit = biped_index;
+			preference->knockback_until = game_time_get() + (long)ceil(PIN(points * 2.f, 50.f, 200.f) * TICKS_PER_SECOND / 1000.f);
+		}
+	}
 	/* No living-biped halving, upward bias, or rotation of the player's
 	facing. An explosion adds momentum to the existing movement. */
 	add_vectors3d(&biped->object.translational_velocity, acceleration,
@@ -278,29 +375,31 @@ char const *quake_weapons_setting(short local_player_index)
 	};
 	return settings[PIN(local_player_index, 0, MAXIMUM_LOCAL_PLAYERS - 1)];
 }
-boolean quake_weapons_preference(short local_player_index)
+short quake_weapons_preference(short local_player_index)
 {
-	return config_boolean(quake_weapons_setting(local_player_index)) != 0;
+	return quake_profile_parse(config_string(quake_weapons_setting(local_player_index)), TRUE);
 }
-void quake_player_weapons_request(long player_index, long tick, boolean enabled)
+void quake_player_weapons_request(long player_index, long tick, short enabled)
 {
 	struct quake_player_preference *preference = quake_preference(player_index);
 	if (!preference || tick < 0 || tick <= preference->weapons_tick) return;
 	preference->weapons_known = TRUE;
-	preference->weapons_requested = enabled != FALSE;
+	preference->weapons_requested = PIN(enabled, 0, 3);
 	preference->weapons_tick = tick;
 }
 boolean quake_player_weapons_known(long biped_index)
 {
 	return TEST_FLAG(biped_get(biped_index)->biped.flags, _biped_quake_weapons_set_bit);
 }
-void quake_player_set_weapons(long biped_index, boolean enabled)
+void quake_player_set_weapons(long biped_index, short enabled)
 {
 	struct biped_datum *biped = biped_get(biped_index);
-	SET_FLAG(biped->biped.flags, _biped_quake_weapons_bit, enabled);
+	enabled = PIN(enabled, 0, 3);
+	SET_FLAG(biped->biped.flags, _biped_quake_weapons_bit, enabled & 1);
+	SET_FLAG(biped->biped.flags, _biped_quake_weapons_high_bit, enabled & 2);
 	SET_FLAG(biped->biped.flags, _biped_quake_weapons_set_bit, TRUE);
 }
-boolean quake_player_weapons(long unit_index)
+short quake_player_weapons(long unit_index)
 {
 	struct biped_datum *biped = biped_try_and_get(unit_index);
 	struct player_datum *player;
@@ -308,7 +407,12 @@ boolean quake_player_weapons(long unit_index)
 	if (!biped || biped->unit.player_index == NONE) return FALSE;
 	player = player_try_and_get(biped->unit.player_index);
 	if (!player) return FALSE;
-	if (!network_game_get_game()) return quake_weapons_preference(player->local_player_index);
+	if (!network_game_get_game())
+	{
+		short profile = quake_weapons_preference(player->local_player_index);
+		quake_player_set_weapons(unit_index, profile);
+		return profile;
+	}
 	if (!quake_player_weapons_known(unit_index))
 	{
 		if (player->local_player_index != NONE)
@@ -320,11 +424,36 @@ boolean quake_player_weapons(long unit_index)
     quake_player_set_weapons(unit_index, preference->weapons_requested);
 		}
 	}
-	return TEST_FLAG(biped->biped.flags, _biped_quake_weapons_bit);
+	return TEST_FLAG(biped->biped.flags, _biped_quake_weapons_bit) | (TEST_FLAG(biped->biped.flags, _biped_quake_weapons_high_bit) << 1);
 }
 
 /* Fixed Quake landing damage; Halo health/shields use the common damage path. */
 real quake_fall_points(real downward_velocity, boolean water)
 {
 	return !water && downward_velocity > 650.f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND ? 5.f : 0.f;
+}
+
+
+real quake3_fall_points(real downward_velocity, real crouch, boolean water)
+{
+	real speed = downward_velocity / QUAKE_WORLD_SCALE * TICKS_PER_SECOND;
+	real severity = speed * speed * 0.0001f * (crouch > 0.5f ? 2.f : 1.f);
+	return water ? 0.f : severity > 60.f ? 10.f : severity > 40.f ? 5.f : 0.f;
+}
+
+void quake_player_motion_heading(long biped_index, real_vector3d const *wish, real_vector3d *previous, boolean *known)
+{
+	struct quake_player_preference *preference = quake_preference(biped_get(biped_index)->unit.player_index);
+	*known = preference && preference->motion_unit == biped_index && preference->motion_tick == game_time_get() - 1 &&
+		magnitude3d(&preference->motion_wish) > 0.f && magnitude3d(wish) > 0.f;
+	if (*known) *previous = preference->motion_wish;
+	if (preference) { preference->motion_wish = *wish; preference->motion_unit = biped_index; preference->motion_tick = game_time_get(); }
+}
+
+real quake2_fall_points(real downward_velocity, boolean water)
+{
+	real speed = downward_velocity / QUAKE_WORLD_SCALE * TICKS_PER_SECOND;
+	real severity = speed * speed * 0.0001f;
+	/* Halo supplies an underwater boolean, not Q2 water-depth levels. */
+	return water || severity <= 30.f ? 0.f : MAX(1.f, (real)(long)((severity - 30.f) * 0.5f));
 }

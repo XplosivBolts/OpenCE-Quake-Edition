@@ -640,7 +640,8 @@ void biped_reset(
 	/* port: a reset/reposition of the same object is not a new life */
 	unsigned long physics_style = biped->biped.flags &
 		(FLAG(_biped_quake_style_set_bit) | FLAG(_biped_quake_style_bit) |
-		FLAG(_biped_quake_weapons_set_bit) | FLAG(_biped_quake_weapons_bit));
+		FLAG(_biped_quake_weapons_set_bit) | FLAG(_biped_quake_weapons_bit) |
+		FLAG(_biped_quake_style_high_bit) | FLAG(_biped_quake_weapons_high_bit) | FLAG(_biped_quake_style_extra_bit));
 	csmemset(&biped->biped, 0, sizeof(biped->biped));
 	biped->biped.flags |= physics_style;
 	biped->biped.ground_plane = depths_of_hell;
@@ -689,6 +690,16 @@ void biped_get_physics_pill(
 		*height = 0.f;
 	}
 	*width = definition->biped.collision_radius;
+	/* port: Q3's standing hull is 30 units wide, versus Q1/Q2's 32.
+	   Preserve the Halo capsule's total height and crouch-height transition. */
+	if (quake_player_style(biped_index) == _quake_physics_quake3 && quake_player_active(biped_index))
+	{
+		real change = *width * (1.f / 16.f);
+		*width -= change;
+		if (!TEST_FLAG(definition->biped.flags, _biped_spherical_bit)) *height += 2.f * change;
+		if (!TEST_FLAG(definition->biped.flags, _biped_pill_centered_at_origin_bit)) base->z -= change;
+	}
+
 
 	return;
 }
@@ -819,17 +830,24 @@ static void biped_falling_damage(
 	/* port: Quake checks grounded vertical impact speed, with fixed harm and no midair kill */
 	if (quake_player_active(biped_index))
 	{
+		real points = quake_player_style(biped_index) == _quake_physics_quake3 ?
+			quake3_fall_points(collision_velocity, biped->biped.crouch, scenario_location_underwater(
+				&biped->object.location, &biped->object.position, NULL)) :
+			quake_player_style(biped_index) == _quake_physics_quake2 ?
+			quake2_fall_points(collision_velocity, scenario_location_underwater(
+				&biped->object.location, &biped->object.position, NULL)) :
+			quake_fall_points(collision_velocity, scenario_location_underwater(
+				&biped->object.location, &biped->object.position, NULL));
 		if (!immune && !cheat.jetpack &&
 			!TEST_FLAG(biped->biped.flags, _biped_airborne_bit) &&
-			quake_fall_points(collision_velocity, scenario_location_underwater(
-				&biped->object.location, &biped->object.position, NULL)) > 0.f &&
+			points > 0.f &&
 			falling_damage->falling_damage.index != NONE)
 		{
 			struct damage_data damage;
 
 			damage_data_new(&damage, falling_damage->falling_damage.index);
 			SET_FLAG(damage.flags, _damage_quake_fall_bit, TRUE);
-			damage.scale = 1.f;
+			damage.scale = points / 5.f;
 			damage.origin = damage.epicenter = biped->object.position;
 			damage.location = biped->object.location;
 			object_cause_damage(&damage, biped_index, NONE, NONE, NONE, NULL);
@@ -1978,7 +1996,8 @@ static void biped_quake_update_jump(
 	{
 		if (!TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit))
 			SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, FALSE);
-		else if (!TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit) &&
+		else if (quake_player_style(biped_index) == _quake_physics_quakeworld &&
+			!TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit) &&
 			biped_jump(biped_index))
 			SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, TRUE);
 	}
@@ -2699,22 +2718,35 @@ static void biped_update_physics(
 
 		csmemset(&motion, 0, sizeof(motion));
 		motion.biped_index = physics->biped_index;
+		motion.style = quake_player_style(physics->biped_index);
+		motion.q2_land_time = quake2_player_land_time(physics->biped_index, 0, FALSE);
+		motion.q3_land_time = quake3_player_land_time(physics->biped_index, 0, FALSE);
 		motion.collision_flags = collision_flags;
 		motion.position = position;
 		motion.velocity = physics->velocity;
 		motion.wish.i = facing.i;
 		motion.wish.j = facing.j;
+		motion.view = biped->unit.desired_aiming_vector;
+		if (normalize3d(&motion.view) == 0.f) motion.view = biped->object.forward;
+		motion.command.i = biped->unit.throttle.i;
+		motion.command.j = biped->unit.throttle.j;
+		motion.command.k = TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit) ? 1.f : 0.f;
+		motion.command_known = TRUE;
+		motion.jump_held = TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit);
 		motion.height = physics->height;
 		motion.radius = physics->width;
 		motion.speed_limit = physics->quake_speed_limit;
 		motion.crouch_velocity = physics->crouch_velocity;
 		motion.stunned = physics->quake_stunned;
+		motion.knockback = motion.style == _quake_physics_quake3 && quake_player_knockback(physics->biped_index);
 		motion.ground_stun_acceleration = physics->acceleration_maximum;
 		motion.air_stun_acceleration = physics->airborne_acceleration_maximum;
 		motion.jump = physics->quake_jump;
 		motion.jump_velocity = physics->quake_jump_velocity;
 		motion.airborne = TEST_FLAG(in_flags, _biped_physics_in_airborne_bit);
 		quake_motion_halo(&motion);
+		if (motion.style == _quake_physics_quake2) quake2_player_land_time(physics->biped_index, motion.q2_land_time, TRUE);
+		if (motion.style == _quake_physics_quake3) quake3_player_land_time(physics->biped_index, motion.q3_land_time, TRUE);
 		physics->quake_jumped = motion.jumped;
 		clipped_position = motion.position;
 		clipped_velocity = motion.velocity;
@@ -3978,6 +4010,17 @@ static void biped_update_moving(
 					forward_speed = quake_movement_crouch_speed(native_forward, sneak_forward, crouch) * TICKS_PER_SECOND;
 					sideways_speed = quake_movement_crouch_speed(player_information->run_sideways_speed,
 						player_information->sneak_sideways_speed, crouch) * TICKS_PER_SECOND;
+					if (quake_player_style(biped_index) == _quake_physics_quake2)
+					{
+						forward_speed = quake_player_profile_speed(_quake_physics_quake2) * TICKS_PER_SECOND * (1.f - crouch + crouch / 3.f);
+						sideways_speed = forward_speed;
+					}
+
+					if (quake_player_style(biped_index) == _quake_physics_quake3)
+					{
+						forward_speed = quake_player_speed() * TICKS_PER_SECOND * (1.f - crouch + crouch * 0.25f);
+						sideways_speed = forward_speed;
+					}
 					physics.quake_jump_velocity *= 1.f - biped->unit.body_stun * player_information->stun_turning_penalty;
 					if (cheat.super_jump)
 						physics.quake_jump_velocity *= 4.f;
@@ -4002,6 +4045,8 @@ static void biped_update_moving(
 				/* port: cap desired diagonal speed; retain accumulated momentum */
 				physics.quake_speed_limit = MAX(forward_speed, sideways_speed) *
 					MAX(stun_scale, 0.f) / TICKS_PER_SECOND;
+				/* port: Q3 command scaling is applied per movement substep. */
+
 				if (!TEST_FLAG(
 					biped->unit.control_flags,
 					_unit_control_look_dont_turn_bit))
@@ -4334,6 +4379,10 @@ boolean biped_new(
 	/* port: each new life takes this player's pending physics selection */
 	SET_FLAG(biped->biped.flags, _biped_quake_style_set_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_style_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_style_high_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_style_extra_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_weapons_set_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_weapons_high_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_halo_climbing_bit, FALSE);
 	biped->biped.support_surface_index = NONE;
 	biped->biped.pathfinding_surface_index = NONE;

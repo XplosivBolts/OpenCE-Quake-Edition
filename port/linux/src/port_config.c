@@ -306,33 +306,45 @@ static const struct config_setting config_settings[] =
 		"as CUSTOM SINGLEPLAYER and CUSTOM MULTIPLAYER. Their tags are checked\n"
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
-	{ "game.quake_physics", _config_boolean, "false", "HALO_QUAKE_PHYSICS", _environment_value, _platform_all,
-		"Player physics: false for Halo CE, true for Quake speed, jump, gravity,\n"
-		"slide/step motion and blasts, retaining Halo crouch jumps and stun.\n"
-		"Controls Setup > Movement > Physics selects it. Network games use\n"
+	{ "game.quake_physics", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS", _environment_value, _platform_all,
+		"Player physics: halo (default), netquake, quakeworld, quake2, or quake3.\n"
+		"Proportional motion and blasts retain Halo crouch jumps and stun.\n"
+		"Controls Setup > Physics > Style selects it. Network games use\n"
 		"each player's choice; changes apply on that player's next respawn." },
-	{ "game.quake_physics_player2", _config_boolean, "false", "HALO_QUAKE_PHYSICS_PLAYER2", _environment_value, _platform_all,
-		"The second local player's Physics choice: false for Halo CE, true for Quake 1." },
-	{ "game.quake_physics_player3", _config_boolean, "false", "HALO_QUAKE_PHYSICS_PLAYER3", _environment_value, _platform_all,
-		"The third local player's Physics choice: false for Halo CE, true for Quake 1." },
-	{ "game.quake_physics_player4", _config_boolean, "false", "HALO_QUAKE_PHYSICS_PLAYER4", _environment_value, _platform_all,
-		"The fourth local player's Physics choice: false for Halo CE, true for Quake 1." },
-	{ "game.quake_weapons", _config_boolean, "false", "HALO_QUAKE_WEAPONS", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+	{ "game.quake_physics_player2", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER2", _environment_value, _platform_all,
+		"The second local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
+	{ "game.quake_physics_player3", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER3", _environment_value, _platform_all,
+		"The third local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
+	{ "game.quake_physics_player4", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER4", _environment_value, _platform_all,
+		"The fourth local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
+	{ "game.quake_weapons", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS", _environment_value, _platform_all,
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
-	{ "game.quake_weapons_player2", _config_boolean, "false", "HALO_QUAKE_WEAPONS_PLAYER2", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+	{ "game.quake_weapons_player2", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS_PLAYER2", _environment_value, _platform_all,
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
-	{ "game.quake_weapons_player3", _config_boolean, "false", "HALO_QUAKE_WEAPONS_PLAYER3", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+	{ "game.quake_weapons_player3", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS_PLAYER3", _environment_value, _platform_all,
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
-	{ "game.quake_weapons_player4", _config_boolean, "false", "HALO_QUAKE_WEAPONS_PLAYER4", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+	{ "game.quake_weapons_player4", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS_PLAYER4", _environment_value, _platform_all,
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
+	{ "display.speedometer", _config_boolean, "false", "HALO_SPEEDOMETER", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
+	{ "display.speedometer_player2", _config_boolean, "false", "HALO_SPEEDOMETER_PLAYER2", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
+	{ "display.speedometer_player3", _config_boolean, "false", "HALO_SPEEDOMETER_PLAYER3", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
+	{ "display.speedometer_player4", _config_boolean, "false", "HALO_SPEEDOMETER_PLAYER4", _environment_value, _platform_all,
+		"Show this local player's horizontal speed below the crosshair in m/s.\n"
+		"Controls Setup > Physics > Speed Display; default off." },
 	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,
 		"The energy shield's flare on the first-person arms too, as on the body\n"
 		"(the stock game draws it on the body only)." },
@@ -1025,6 +1037,11 @@ static void config_set_from_file(struct config_value *value, const struct config
 		{
 			free(value->string);
 			value->string = strdup(datum.u.s);
+		}
+		else if (datum.type == TOML_BOOLEAN && (!strncmp(setting->name, "game.quake_physics", 18) || !strncmp(setting->name, "game.quake_weapons", 18)))
+		{
+			free(value->string);
+			value->string = strdup(datum.u.boolean ? (!strncmp(setting->name, "game.quake_physics", 18) ? "quakeworld" : "quake1") : "halo");
 		}
 		else
 		{

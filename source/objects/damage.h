@@ -39,6 +39,12 @@ enum
 	_damage_no_statistics_bit,
 	_damage_quake_blast_bit, /* port: one Quake radial projectile blast */
 	_damage_quake_fall_bit, /* port: fixed five-point Quake landing harm */
+	_damage_quake3_blast_bit, /* port: Q3 radial falloff and unhalved knockback */
+	_damage_quake3_grenade_bit, /* port: 150-unit rather than 120-unit radius */
+	_damage_quake3_direct_bit, /* port: 100-point missile direct hit */
+	_damage_quake2_blast_bit, /* port: Q2 center falloff and rocket-jump impulse */
+	_damage_quake2_grenade_bit, /* port: Q2 160-unit grenade splash */
+	_damage_quake2_direct_bit, /* port: Q2 missile direct damage */
 	NUMBER_OF_DAMAGE_DATA_FLAGS,
 };
 

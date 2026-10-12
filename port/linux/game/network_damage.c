@@ -41,6 +41,8 @@ being hit looks and feels like on the clients).
 */
 
 #include "cseries.h"
+#include "quake_movement.h"
+#include "quake_weapons.h"
 #include "cseries/errors.h"
 #include "game/game.h"
 #include "game/game_globals.h"
@@ -1940,6 +1942,32 @@ static boolean distributed_report_valid(
 	else
 	{
 		normalize3d(&damage->direction);
+	}
+	/* Select projectile-specific harm only for the authenticated owner's
+	   confirmed weapon profile and canonical rocket/frag damage definition. */
+	if (!melee && !collision && quake_weapons_blast_tag(damage->definition_index))
+	{
+		struct unit_datum *owner = unit_try_and_get(report->damage.owner_object_index);
+		short profile = owner && owner->unit.player_index == DATUM_INDEX_NEW(player_index, player->identifier) ?
+			quake_player_weapons(report->damage.owner_object_index) : 0;
+		if (profile && area && TEST_FLAG(report->damage.flags, _damage_quake_blast_bit))
+		{
+			SET_FLAG(damage->flags, _damage_quake_blast_bit, TRUE);
+			SET_FLAG(damage->flags, _damage_quake3_blast_bit, profile == _quake_weapons_quake3);
+			SET_FLAG(damage->flags, _damage_quake2_blast_bit, profile == _quake_weapons_quake2);
+			SET_FLAG(damage->flags, _damage_quake2_grenade_bit, profile == _quake_weapons_quake2 && !strcmp(tag_get_name(damage->definition_index), "weapons\\frag grenade\\explosion"));
+			SET_FLAG(damage->flags, _damage_quake3_grenade_bit, profile == _quake_weapons_quake3 &&
+				!strcmp(tag_get_name(damage->definition_index), "weapons\\frag grenade\\explosion"));
+		}
+		if (profile == _quake_weapons_quake2 && !area && TEST_FLAG(report->damage.flags, _damage_quake2_direct_bit))
+		{
+			boolean grenade = !strcmp(tag_get_name(damage->definition_index), "weapons\\frag grenade\\explosion");
+			if (report->damage.scale < (grenade ? 0.f : 100.f / 120.f) || report->damage.scale > 1.f) return FALSE;
+			SET_FLAG(damage->flags, _damage_quake2_direct_bit, TRUE);
+		}
+
+		if (profile == _quake_weapons_quake3 && !area && TEST_FLAG(report->damage.flags, _damage_quake3_direct_bit))
+			SET_FLAG(damage->flags, _damage_quake3_direct_bit, TRUE);
 	}
 	damage->multiplier = 1.0f;
 	damage->owner_player_index = DATUM_INDEX_NEW(player_index, player->identifier);

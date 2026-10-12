@@ -744,10 +744,10 @@ not.
 
 ## Quake physics compatibility
 
-Network version 39 carries independent per-player movement and rocket/frag
+Network version 40 carries independent per-player movement and rocket/frag
 behavior requests in the input packet's former padding bytes. The host validates
-both as booleans and accepts only requests belonging to the authenticated
-player's machine. Snapshot bits confirm the active choices and whether they
+movement ids 0..3 and weapon ids 0..2 and accepts only requests belonging to the authenticated
+player's machine. Two-bit snapshot fields confirm the active choices and whether they
 are known. Both choices stay attached to a life, survive a same-life biped reset,
 and apply on respawn. Projectiles capture their owner's weapon choice at spawn.
 
@@ -757,3 +757,12 @@ use 80 units per Halo world unit; the new simulation is incompatible with older
 builds. No input packet or object datum grows. Halo CE choices retain their
 native movement, projectile and falling-damage paths. Both weapon choices share
 the Quake self-damage values, with Halo shields and damage immunities retained.
+
+The fixed movement schedules share the synchronized world tick. Q3-specific damage flags in client reports are restored only after authenticated owner/profile and canonical damage-tag validation.
+
+Network version 43 adds a remaining-Q3-landing-timer byte to each living
+player unit snapshot, after the unit index. Values above 250 milliseconds
+are rejected. A confirmed host style is applied before its timer, so local
+prediction/replay uses the same landing state. The profile IDs are unchanged.
+Version 43 also separates Q3 contact rules and proportional hull width from
+older movement simulations; every peer must use the same version.
