@@ -641,7 +641,7 @@ void biped_reset(
 	unsigned long physics_style = biped->biped.flags &
 		(FLAG(_biped_quake_style_set_bit) | FLAG(_biped_quake_style_bit) |
 		FLAG(_biped_quake_weapons_set_bit) | FLAG(_biped_quake_weapons_bit) |
-		FLAG(_biped_quake_style_high_bit) | FLAG(_biped_quake_weapons_high_bit));
+		FLAG(_biped_quake_style_high_bit) | FLAG(_biped_quake_weapons_high_bit) | FLAG(_biped_quake_style_extra_bit));
 	csmemset(&biped->biped, 0, sizeof(biped->biped));
 	biped->biped.flags |= physics_style;
 	biped->biped.ground_plane = depths_of_hell;
@@ -822,6 +822,9 @@ static void biped_falling_damage(
 	{
 		real points = quake_player_style(biped_index) == _quake_physics_quake3 ?
 			quake3_fall_points(collision_velocity, biped->biped.crouch, scenario_location_underwater(
+				&biped->object.location, &biped->object.position, NULL)) :
+			quake_player_style(biped_index) == _quake_physics_quake2 ?
+			quake2_fall_points(collision_velocity, scenario_location_underwater(
 				&biped->object.location, &biped->object.position, NULL)) :
 			quake_fall_points(collision_velocity, scenario_location_underwater(
 				&biped->object.location, &biped->object.position, NULL));
@@ -2706,6 +2709,7 @@ static void biped_update_physics(
 		csmemset(&motion, 0, sizeof(motion));
 		motion.biped_index = physics->biped_index;
 		motion.style = quake_player_style(physics->biped_index);
+		motion.q2_land_time = quake2_player_land_time(physics->biped_index, 0, FALSE);
 		motion.collision_flags = collision_flags;
 		motion.position = position;
 		motion.velocity = physics->velocity;
@@ -2723,6 +2727,7 @@ static void biped_update_physics(
 		motion.jump_velocity = physics->quake_jump_velocity;
 		motion.airborne = TEST_FLAG(in_flags, _biped_physics_in_airborne_bit);
 		quake_motion_halo(&motion);
+		if (motion.style == _quake_physics_quake2) quake2_player_land_time(physics->biped_index, motion.q2_land_time, TRUE);
 		physics->quake_jumped = motion.jumped;
 		clipped_position = motion.position;
 		clipped_velocity = motion.velocity;
@@ -3986,6 +3991,12 @@ static void biped_update_moving(
 					forward_speed = quake_movement_crouch_speed(native_forward, sneak_forward, crouch) * TICKS_PER_SECOND;
 					sideways_speed = quake_movement_crouch_speed(player_information->run_sideways_speed,
 						player_information->sneak_sideways_speed, crouch) * TICKS_PER_SECOND;
+					if (quake_player_style(biped_index) == _quake_physics_quake2)
+					{
+						forward_speed = quake_player_profile_speed(_quake_physics_quake2) * TICKS_PER_SECOND * (1.f - crouch + crouch / 3.f);
+						sideways_speed = forward_speed;
+					}
+
 					if (quake_player_style(biped_index) == _quake_physics_quake3)
 					{
 						forward_speed = quake_player_speed() * TICKS_PER_SECOND * (1.f - crouch + crouch * 0.25f);
@@ -4360,6 +4371,7 @@ boolean biped_new(
 	SET_FLAG(biped->biped.flags, _biped_quake_style_set_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_style_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_style_high_bit, FALSE);
+	SET_FLAG(biped->biped.flags, _biped_quake_style_extra_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_weapons_set_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_weapons_high_bit, FALSE);
 	SET_FLAG(biped->biped.flags, _biped_quake_halo_climbing_bit, FALSE);

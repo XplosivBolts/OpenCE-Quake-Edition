@@ -25,6 +25,9 @@ short quake_weapons_tag_kind(long definition_index)
 void quake_weapons_stamp(long projectile_index)
 {
 	struct projectile_datum *projectile = projectile_get(projectile_index);
+	SET_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_Q2_BIT, quake_weapons_tag_kind(projectile->definition_index) && quake_player_weapons(projectile->object.owner_object_index) == _quake_weapons_quake2);
+	if (TEST_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_Q2_BIT))
+		projectile->projectile.maximum_damage_distance = quake_weapons_tag_kind(projectile->definition_index) == 1 ? (real)(long)real_random_range(100.f, 120.f) : 120.f;
 	SET_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_Q3_BIT, quake_player_weapons(projectile->object.owner_object_index) == _quake_weapons_quake3);
 	SET_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_BIT,
 		quake_weapons_tag_kind(projectile->definition_index) && quake_player_weapons(projectile->object.owner_object_index));
@@ -37,6 +40,7 @@ short quake_weapons_projectile_kind(long projectile_index)
 }
 short quake_weapons_projectile_profile(long projectile_index)
 {
+	if (TEST_FLAG(projectile_get(projectile_index)->projectile.flags, QUAKE_PROJECTILE_Q2_BIT)) return _quake_weapons_quake2;
 	return TEST_FLAG(projectile_get(projectile_index)->projectile.flags, QUAKE_PROJECTILE_Q3_BIT) ? _quake_weapons_quake3 : _quake_weapons_quake1;
 }
 void quake_weapons_launch(long projectile_index)
@@ -45,6 +49,7 @@ void quake_weapons_launch(long projectile_index)
 	struct unit_datum *owner = unit_try_and_get(projectile->object.owner_object_index);
 	short kind = quake_weapons_projectile_kind(projectile_index);
 	boolean q3 = quake_weapons_projectile_profile(projectile_index) == _quake_weapons_quake3;
+	boolean q2 = quake_weapons_projectile_profile(projectile_index) == _quake_weapons_quake2;
 	short axis;
 	real_vector3d aim = projectile->object.forward, right, up, velocity;
 	real_point3d position, eye;
@@ -76,7 +81,8 @@ void quake_weapons_launch(long projectile_index)
 			/* Scale both original launch heights with the current Halo body,
 			   including its crouch blend; Quake's standing hull is 56 high. */
 			biped_get_physics_pill(projectile->object.owner_object_index, &base, &height, &radius);
-			position.z += (height + 2.f * radius) * ((q3 ? 50.f : kind == 1 ? 40.f : 24.f) / 56.f);
+			position.z += q2 ? MAX(0.f, (height + 2.f * radius) * (6.f / 7.f) - 10.f * QUAKE_WORLD_SCALE) :
+				(height + 2.f * radius) * ((q3 ? 50.f : kind == 1 ? 40.f : 24.f) / 56.f);
 		}
 		else position.z += (kind == 1 ? 40.f : 24.f) * QUAKE_WORLD_SCALE;
 	}
@@ -90,6 +96,19 @@ void quake_weapons_launch(long projectile_index)
 		position.x = (long)(position.x / QUAKE_WORLD_SCALE) * QUAKE_WORLD_SCALE;
 		position.y = (long)(position.y / QUAKE_WORLD_SCALE) * QUAKE_WORLD_SCALE;
 		position.z = (long)(position.z / QUAKE_WORLD_SCALE) * QUAKE_WORLD_SCALE;
+	}
+	else if (q2)
+	{
+		point_from_line3d(&position, &aim, 8.f * QUAKE_WORLD_SCALE, &position);
+		point_from_line3d(&position, &right, 8.f * QUAKE_WORLD_SCALE, &position);
+		scale_vector3d(&aim, (kind == 1 ? 650.f : 600.f) * scale, &velocity);
+		if (kind == 2)
+		{
+			real vertical = real_random_range(-10.f, 10.f), sideways = real_random_range(-10.f, 10.f);
+			velocity.i += (up.i * (200.f + vertical) + right.i * sideways) * scale;
+			velocity.j += (up.j * (200.f + vertical) + right.j * sideways) * scale;
+			velocity.k += (up.k * (200.f + vertical) + right.k * sideways) * scale;
+		}
 	}
 	else if (kind == 1)
 	{
@@ -132,10 +151,13 @@ void quake_weapons_explode(long projectile_index)
 	struct damage_data damage;
 	long saved_target = quake_direct_target;
 	boolean q3 = quake_weapons_projectile_profile(projectile_index) == _quake_weapons_quake3;
+	boolean q2 = quake_weapons_projectile_profile(projectile_index) == _quake_weapons_quake2;
 	if (definition == NONE) return;
 	damage_data_new(&damage, definition);
 	SET_FLAG(damage.flags, _damage_quake_blast_bit, TRUE);
 	SET_FLAG(damage.flags, _damage_quake3_blast_bit, q3);
+	SET_FLAG(damage.flags, _damage_quake2_blast_bit, q2);
+	SET_FLAG(damage.flags, _damage_quake2_grenade_bit, q2 && kind == 2);
 	SET_FLAG(damage.flags, _damage_quake3_grenade_bit, q3 && kind == 2);
 	SET_FLAG(damage.flags, _damage_from_weapon_bit, TRUE);
 	damage.origin = damage.epicenter = projectile->object.position;
@@ -144,7 +166,7 @@ void quake_weapons_explode(long projectile_index)
 	damage.owner_object_index = projectile->object.owner_object_index;
 	damage.owner_player_index = projectile->object.owner_player_index;
 	damage.owner_team_index = projectile->object.owner_team_index;
-	quake_direct_target = q3 && TEST_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_DIRECT_BIT) ? projectile->projectile.target_object_index : NONE;
+	quake_direct_target = (q3 || q2) && TEST_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_DIRECT_BIT) ? projectile->projectile.target_object_index : NONE;
 	area_of_effect_cause_damage(&damage, projectile_index);
 	quake_direct_target = saved_target;
 }
@@ -189,21 +211,49 @@ real quake3_damage_distance(real_point3d const *origin, long object_index)
 	dz = MAX(0.f, MAX(base.z - origin->z, origin->z - base.z - height));
 	return square_root(dx*dx + dy*dy + dz*dz);
 }
+real quake2_blast_points(real distance, boolean self_damage, boolean grenade)
+{
+	if (distance < 0.f || distance > (grenade ? 160.f : 120.f) * QUAKE_WORLD_SCALE) return 0.f;
+	return (real)(long)(MAX(0.f, 120.f - 0.5f * distance / QUAKE_WORLD_SCALE) * (self_damage ? 0.5f : 1.f));
+}
+real quake2_direct_points(long projectile_index)
+{
+	struct projectile_datum *projectile = projectile_get(projectile_index);
+	real points = projectile->projectile.maximum_damage_distance;
+	if (quake_weapons_projectile_kind(projectile_index) == 2)
+	{
+		struct object_datum *target = object_get(projectile->projectile.target_object_index);
+		real_point3d center = target->object.position;
+		center.z += 28.f * QUAKE_WORLD_SCALE;
+		points -= 0.5f * distance3d(&projectile->object.position, &center) / QUAKE_WORLD_SCALE;
+	}
+	return (real)(long)MAX(0.f, points);
+}
 void quake_weapons_impact(long projectile_index)
 {
 	struct projectile_datum *projectile = projectile_get(projectile_index);
 	struct damage_data damage;
 	long definition;
-	if (quake_weapons_projectile_profile(projectile_index) != _quake_weapons_quake3 ||
+	boolean q2 = quake_weapons_projectile_profile(projectile_index) == _quake_weapons_quake2;
+	if ((!q2 && quake_weapons_projectile_profile(projectile_index) != _quake_weapons_quake3) ||
 		!TEST_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_DIRECT_BIT)) return;
 	definition = tag_loaded('jpt!', quake_weapons_projectile_kind(projectile_index) == 1 ? "weapons\\rocket launcher\\explosion" : "weapons\\frag grenade\\explosion");
 	if (definition == NONE) return;
 	damage_data_new(&damage, definition);
-	SET_FLAG(damage.flags, _damage_quake3_direct_bit, TRUE);
+	SET_FLAG(damage.flags, _damage_quake3_direct_bit, !q2);
+	SET_FLAG(damage.flags, _damage_quake2_direct_bit, q2);
 	SET_FLAG(damage.flags, _damage_from_weapon_bit, TRUE);
+	damage.scale = q2 ? quake2_direct_points(projectile_index) / 120.f : 1.f;
 	damage.origin = damage.epicenter = projectile->object.position;
 	damage.location = projectile->object.location;
-	damage.direction = projectile->object.translational_velocity; normalize3d(&damage.direction);
+	damage.direction = projectile->object.translational_velocity;
+	if (q2 && quake_weapons_projectile_kind(projectile_index) == 2)
+	{
+		real_point3d target = object_get(projectile->projectile.target_object_index)->object.position;
+		target.z += 24.f * QUAKE_WORLD_SCALE;
+		vector_from_points3d(&damage.origin, &target, &damage.direction);
+	}
+	normalize3d(&damage.direction);
 	damage.owner_object_index = projectile->object.owner_object_index;
 	damage.owner_player_index = projectile->object.owner_player_index;
 	damage.owner_team_index = projectile->object.owner_team_index;

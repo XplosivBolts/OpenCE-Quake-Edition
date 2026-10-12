@@ -1954,9 +1954,18 @@ static boolean distributed_report_valid(
 		{
 			SET_FLAG(damage->flags, _damage_quake_blast_bit, TRUE);
 			SET_FLAG(damage->flags, _damage_quake3_blast_bit, profile == _quake_weapons_quake3);
+			SET_FLAG(damage->flags, _damage_quake2_blast_bit, profile == _quake_weapons_quake2);
+			SET_FLAG(damage->flags, _damage_quake2_grenade_bit, profile == _quake_weapons_quake2 && !strcmp(tag_get_name(damage->definition_index), "weapons\\frag grenade\\explosion"));
 			SET_FLAG(damage->flags, _damage_quake3_grenade_bit, profile == _quake_weapons_quake3 &&
 				!strcmp(tag_get_name(damage->definition_index), "weapons\\frag grenade\\explosion"));
 		}
+		if (profile == _quake_weapons_quake2 && !area && TEST_FLAG(report->damage.flags, _damage_quake2_direct_bit))
+		{
+			boolean grenade = !strcmp(tag_get_name(damage->definition_index), "weapons\\frag grenade\\explosion");
+			if (report->damage.scale < (grenade ? 0.f : 100.f / 120.f) || report->damage.scale > 1.f) return FALSE;
+			SET_FLAG(damage->flags, _damage_quake2_direct_bit, TRUE);
+		}
+
 		if (profile == _quake_weapons_quake3 && !area && TEST_FLAG(report->damage.flags, _damage_quake3_direct_bit))
 			SET_FLAG(damage->flags, _damage_quake3_direct_bit, TRUE);
 	}

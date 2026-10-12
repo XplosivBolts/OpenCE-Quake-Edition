@@ -11,13 +11,14 @@
 #define QUAKE_WORLD_SCALE (1.f / 80.f)
 #define QUAKE_MOVEMENT_SUBSTEPS 3
 
-enum quake_physics_profile { _quake_physics_halo, _quake_physics_quakeworld, _quake_physics_netquake, _quake_physics_quake3 };
-enum quake_weapon_profile { _quake_weapons_halo, _quake_weapons_quake1, _quake_weapons_quake3 };
+enum quake_physics_profile { _quake_physics_halo, _quake_physics_quakeworld, _quake_physics_netquake, _quake_physics_quake3, _quake_physics_quake2 };
+enum quake_weapon_profile { _quake_weapons_halo, _quake_weapons_quake1, _quake_weapons_quake3, _quake_weapons_quake2 };
 
 struct quake_motion
 {
 	long biped_index;
 	short style;
+	short q2_land_time;
 	unsigned long collision_flags;
 	real_point3d position;
 	real_vector3d velocity;
@@ -85,4 +86,7 @@ void quake_movement_step_profile(real_vector3d *velocity, real_vector3d const *w
 real quake3_fall_points(real downward_velocity, real crouch, boolean water);
 boolean quake_player_knockback(long biped_index);
 void quake_player_motion_heading(long biped_index, real_vector3d const *wish, real_vector3d *previous, boolean *known);
+real quake_player_profile_speed(short style);
+short quake2_player_land_time(long biped_index, short time, boolean write);
+real quake2_fall_points(real downward_velocity, boolean water);
 #endif

@@ -18,16 +18,16 @@ Controls Setup > Show: Movement has two independent native scrolling selectors:
 
 | Selector | Choices |
 | --- | --- |
-| Physics | Halo CE (default), NetQuake, QuakeWorld, Quake 3 |
-| Rocket/Grenade | Halo CE (default), Quake 1, Quake 3 |
+| Physics | Halo CE (default), NetQuake, QuakeWorld, Quake 2, Quake 3 |
+| Rocket/Grenade | Halo CE (default), Quake 1, Quake 2, Quake 3 |
 
 OK saves, Cancel discards, and Defaults selects Halo CE. Each local/split-screen
 player has separate preferences. Multiplayer players can mix profiles in one
 match; the host confirms active choices, with changes applied on respawn. Fired
 projectiles keep the weapon profile captured when they spawn.
 
-`game.quake_physics` accepts `halo`, `netquake`, `quakeworld`, or `quake3`.
-`game.quake_weapons` accepts `halo`, `quake1`, or `quake3`. The `_player2` through
+`game.quake_physics` accepts `halo`, `netquake`, `quakeworld`, `quake2`, or `quake3`.
+`game.quake_weapons` accepts `halo`, `quake1`, `quake2`, or `quake3`. The `_player2` through
 `_player4` keys select other local players. Existing boolean `true` physics
 settings migrate to QuakeWorld; `true` weapon settings migrate to Quake 1.
 Boolean false and unknown profile names select Halo CE. Environment variables
@@ -35,7 +35,7 @@ retain their existing names and also accept these profile strings.
 
 All Quake lengths, speeds, accelerations and blast impulses use one height-based
 conversion: 80 Quake units per Halo world unit. Quake's 56-unit standing height
-maps to Halo's 0.7-world-unit body. Running is 320 units/s, jump launch is 270,
+maps to Halo's 0.7-world-unit body. Running is 300 units/s in Quake 2 and 320 otherwise, jump launch is 270,
 and gravity is 800 units/s squared. Halo collision capsules, airborne crouch
 jumps, ladders, elevators, plasma-rifle injury penalties, shields, damage immunity,
 speed modifiers, camera/bob and native animations remain.
@@ -67,7 +67,7 @@ Ordinary-water landings remain exempt from Quake fall damage.
 | Launch height | Rocket 40/56, grenade 24/56 of current body | 50/56 of current body |
 | Forward muzzle offset | Rocket 8 | Both 14 |
 | Radial damage/force range | 160, center-distance falloff | Rocket 120 / grenade 150, nearest body-box distance |
-| Knockback | Raw splash points × 8, including Q1 self half | Pre-self-reduction integer points × 5; short Q3 control/friction protection |
+| Knockback | Raw splash points times 8, including Q1 self half | Pre-self-reduction integer points times 5; short Q3 control/friction protection |
 | Direct-hit damage | Retained existing Q1-compatible behavior | 100, followed by radial harm excluding the direct target |
 
 Both weapon selectors retain the same existing Quake 1 rocket/frag self-damage
@@ -263,3 +263,11 @@ Enter `adb pull` to copy the recording parts to a computer.
 
 A profiling build plays with normal builds. It does not use
 `--pgo=train`.
+
+### Quake 2
+
+Quake 2 is selectable between QuakeWorld and Quake 3 under Movement, with an independent Quake 2 Rocket/Grenade choice. Stock Q2 movement uses run speed 300, friction 6, ground/air acceleration 10/1, jump 270, gravity 800, eighth-unit quantization and landing timers. The port uses deterministic 90 Hz integer-millisecond reference commands while retaining the 30 Hz Halo input/world clock and Halo crouch/plasma mechanics.
+
+Q2 rocket speed is 650. Frag grenades emulate the Q2 grenade launcher (600 forward plus 200 up with native toss scatter, 2.5-second fuse and normal-only bounce). Both use original Q2 100 ms projectile updates and proportional muzzle/blast parameters. Shared Q1 self-damage and Halo shields remain. Network version 41 is required. See the settings documentation for compatibility limits.
+
+Behavioral references: [original Q2 Pmove](https://github.com/id-Software/Quake-2/blob/master/qcommon/pmove.c), [projectile physics](https://github.com/id-Software/Quake-2/blob/master/game/g_phys.c), [weapons](https://github.com/id-Software/Quake-2/blob/master/game/g_weapon.c), [blast damage](https://github.com/id-Software/Quake-2/blob/master/game/g_combat.c). No GPL implementation is copied into production.

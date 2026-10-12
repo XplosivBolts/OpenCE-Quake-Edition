@@ -307,30 +307,30 @@ static const struct config_setting config_settings[] =
 		"as the game's own maps' are before they run; false refuses them\n"
 		"(docs/custom_edition_caches.md)." },
 	{ "game.quake_physics", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS", _environment_value, _platform_all,
-		"Player physics: halo (default), netquake, quakeworld, or quake3.\n"
+		"Player physics: halo (default), netquake, quakeworld, quake2, or quake3.\n"
 		"Proportional motion and blasts retain Halo crouch jumps and stun.\n"
 		"Controls Setup > Movement > Physics selects it. Network games use\n"
 		"each player's choice; changes apply on that player's next respawn." },
 	{ "game.quake_physics_player2", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER2", _environment_value, _platform_all,
-		"The second local player's Physics choice: halo, netquake, quakeworld, or quake3." },
+		"The second local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
 	{ "game.quake_physics_player3", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER3", _environment_value, _platform_all,
-		"The third local player's Physics choice: halo, netquake, quakeworld, or quake3." },
+		"The third local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
 	{ "game.quake_physics_player4", _config_string, "\"halo\"", "HALO_QUAKE_PHYSICS_PLAYER4", _environment_value, _platform_all,
-		"The fourth local player's Physics choice: halo, netquake, quakeworld, or quake3." },
+		"The fourth local player's Physics choice: halo, netquake, quakeworld, quake2, or quake3." },
 	{ "game.quake_weapons", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
 	{ "game.quake_weapons_player2", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS_PLAYER2", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
 	{ "game.quake_weapons_player3", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS_PLAYER3", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
 	{ "game.quake_weapons_player4", _config_string, "\"halo\"", "HALO_QUAKE_WEAPONS_PLAYER4", _environment_value, _platform_all,
-		"Rocket/frag behavior: Halo CE by default, Quake 1 when true.\n"
+		"Rocket/frag behavior: halo (default), quake1, quake2, or quake3.\n"
 		"Independent of movement physics; multiplayer changes apply next respawn.\n"
 		"Self damage is unchanged. Infinite ammunition remains test-map only." },
 	{ "display.viewmodel_shield", _config_boolean, "false", "HALO_VIEWMODEL_SHIELD", _environment_value, _platform_all,

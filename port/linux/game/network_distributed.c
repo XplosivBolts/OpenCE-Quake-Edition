@@ -236,6 +236,7 @@ enum
 	_distributed_unit_weapons_known_bit,
 	_distributed_unit_physics_high_bit,
 	_distributed_unit_weapons_high_bit,
+	_distributed_unit_physics_extra_bit,
 };
 
 /* a unit state's parts on the wire: which of those that are not always
@@ -305,7 +306,7 @@ struct distributed_unit_state
 	byte flags;
 	/* (dead) the player who killed it, NO_PLAYER for none */
 	byte killing_player_index;
-	byte unit_flags;
+	word unit_flags;
 	/* the player's unit (the host's), NONE for none */
 	long unit_index;
 	/* the vehicle it rides and its seat, NONE for none */
@@ -387,7 +388,7 @@ enum
 	first) */
 	DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE = 3,
 	DISTRIBUTED_UNIT_STATE_MAXIMUM_SIZE = 3 + 4 + (4 + 2) + (12 + 3 * 6) + 2 + 2 * 2 + 4 * 2 +
-		2 * NUMBER_OF_PLAYER_POWERUPS + 2 + 1,
+		2 * NUMBER_OF_PLAYER_POWERUPS + 3 + 1,
 	DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE = 14,
 	DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE = 14 + 2 * (DISTRIBUTED_INPUT_HISTORY - 1),
 };
@@ -1380,6 +1381,7 @@ static void distributed_state_from_player(
 		{
 			SET_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit, quake_player_style(unit_index) & 1);
 			SET_FLAG(state->unit_flags, _distributed_unit_physics_high_bit, quake_player_style(unit_index) & 2);
+			SET_FLAG(state->unit_flags, _distributed_unit_physics_extra_bit, quake_player_style(unit_index) & 4);
 			SET_FLAG(state->unit_flags, _distributed_unit_physics_known_bit, quake_player_style_known(unit_index));
 			SET_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit, quake_player_weapons(unit_index) & 1);
 			SET_FLAG(state->unit_flags, _distributed_unit_weapons_high_bit, quake_player_weapons(unit_index) & 2);
@@ -1595,6 +1597,10 @@ static word distributed_unit_state_read(
 	{
 		return 0;
 	}
+	if ((state->unit_flags & ~0x1ffU) ||
+		(TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit) |
+		(TEST_FLAG(state->unit_flags, _distributed_unit_physics_high_bit) << 1) |
+		(TEST_FLAG(state->unit_flags, _distributed_unit_physics_extra_bit) << 2)) > 4) return 0;
 	return (word)(cursor - buffer);
 }
 
@@ -2298,7 +2304,7 @@ static void distributed_handle_unit_state(
 	Unknown defaults while joining must not overwrite local prediction. */
 	if (object_get(unit_index)->object.type == _object_type_biped &&
 		TEST_FLAG(state->unit_flags, _distributed_unit_physics_known_bit))
-		quake_player_set_style(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_physics_high_bit) << 1));
+		quake_player_set_style(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_physics_high_bit) << 1) | (TEST_FLAG(state->unit_flags, _distributed_unit_physics_extra_bit) << 2));
 	if (object_get(unit_index)->object.type == _object_type_biped && TEST_FLAG(state->unit_flags, _distributed_unit_weapons_known_bit))
 		quake_player_set_weapons(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_weapons_high_bit) << 1));
 	/* the seat it rides: a client's own player's, once it has ridden
@@ -2479,7 +2485,7 @@ static void distributed_handle_inputs(
 		struct player_action action;
 
 		if (input->player_index >= MAXIMUM_TRACKED_PLAYERS ||
-			input->quake_physics > 3 || input->quake_weapons > 2 ||
+			input->quake_physics > 4 || input->quake_weapons > 3 ||
 			!distributed_machine_has_player(machine_index, input->player_index))
 		{
 			continue;

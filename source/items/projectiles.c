@@ -674,18 +674,26 @@ static boolean quake_projectile_update(long projectile_index, short kind)
 	short step;
 	short profile = quake_weapons_projectile_profile(projectile_index);
 	boolean q3 = profile == _quake_weapons_quake3;
+	boolean q2 = profile == _quake_weapons_quake2;
 	boolean detonate = FALSE;
 	if (projectile->object.parent_object_index != NONE) return TRUE;
 	quake_weapons_launch(projectile_index);
 	/* port: test elapsed ticks before advancing the interval; the launch
 	   update is time zero, not one elapsed world tick. */
-	if (projectile->projectile.detonation_timer >= (kind == 2 ? 75.f : q3 ? 450.f : 150.f))
+	if (projectile->projectile.detonation_timer >= (kind == 2 ? 75.f : q2 ? 360.f : q3 ? 450.f : 150.f))
 	{
 		if (kind == 2 || q3) projectile_detonate(projectile_index, TRUE, 0.f);
 		object_delete(projectile_index);
 		return TRUE;
 	}
-	for (step = 0; step < 3; ++step)
+	/* port: Q2 non-client physics uses FRAMETIME=100ms. Its think runs
+	   before motion; birth time has no elapsed projectile interval. */
+	if (q2 && (projectile->projectile.detonation_timer == 0.f || (long)projectile->projectile.detonation_timer % 3))
+	{
+		projectile->projectile.detonation_timer += 1.f;
+		return TRUE;
+	}
+	for (step = 0; step < (q2 ? 1 : 3); ++step)
 	{
 		real_point3d position;
 		real_vector3d velocity = projectile->object.translational_velocity;
@@ -693,8 +701,9 @@ static boolean quake_projectile_update(long projectile_index, short kind)
 		boolean hit;
 		struct collision_result collision;
 		if (TEST_FLAG(projectile->object.flags, _object_at_rest_bit)) break;
+		if (q2) gravity *= 9.f;
 		if (kind == 2) velocity.k -= gravity * (q3 ? 0.5f : 1.f);
-		point_from_line3d(&projectile->object.position, &velocity, 1.f/3.f, &position);
+		point_from_line3d(&projectile->object.position, &velocity, q2 ? 3.f : 1.f/3.f, &position);
 		global_current_collision_users[global_current_collision_user_depth++] = _collision_user_projectiles;
 		hit = projectile_collision_test_line(projectile_index, &position, &collision);
 		if (hit)
@@ -716,7 +725,7 @@ static boolean quake_projectile_update(long projectile_index, short kind)
 			{
 				detonate = TRUE;
 				if (q3) position = collision.point;
-				if (q3 && collision.type == _collision_result_object)
+				if ((q3 || q2) && collision.type == _collision_result_object)
 				{
 					SET_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_DIRECT_BIT, TRUE);
 					projectile->projectile.target_object_index = collision.object_index;

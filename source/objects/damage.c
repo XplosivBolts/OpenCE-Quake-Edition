@@ -1054,7 +1054,7 @@ static void object_damage_aftermath(
 		boolean quake_blast = object->object.type == _object_type_biped &&
 			TEST_FLAG(damage->flags, _damage_area_of_effect_bit) &&
 			(damage_effect->damage.category == _damage_category_grenade ||
-				damage_effect->damage.category == _damage_category_highexplosive) && (quake_player_active(object_index) || (TEST_FLAG(damage->flags, _damage_quake_blast_bit) || TEST_FLAG(damage->flags, _damage_quake3_direct_bit)));
+				damage_effect->damage.category == _damage_category_highexplosive) && (quake_player_active(object_index) || (TEST_FLAG(damage->flags, _damage_quake_blast_bit) || TEST_FLAG(damage->flags, _damage_quake3_direct_bit) || TEST_FLAG(damage->flags, _damage_quake2_direct_bit)));
 
 		if (!quake_blast)
 			direction.k += 0.45f;
@@ -1086,6 +1086,23 @@ static void object_damage_aftermath(
 			vector_from_points3d(&damage->epicenter, &origin, &direction); normalize3d(&direction);
 			acceleration_scale = quake3_blast_points(quake3_damage_distance(&damage->epicenter, object_index), (TEST_FLAG(damage->flags, _damage_quake3_grenade_bit) || strstr(tag_get_name(damage->definition_index), "frag grenade") != NULL)) * 5.f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
 		}
+		else if (TEST_FLAG(damage->flags, _damage_quake2_blast_bit) ||
+			(quake_blast && !TEST_FLAG(damage->flags, _damage_quake_blast_bit) &&
+			quake_player_style(object_index) == _quake_physics_quake2 && quake_weapons_blast_tag(damage->definition_index)))
+		{
+			real_point3d center = object->object.position, origin = center;
+			center.z += 28.f * QUAKE_WORLD_SCALE; origin.z += 24.f * QUAKE_WORLD_SCALE;
+			vector_from_points3d(&damage->epicenter, &origin, &direction); normalize3d(&direction);
+			acceleration_scale = quake2_blast_points(distance3d(&damage->epicenter, &center),
+				object_index == damage->owner_object_index, TEST_FLAG(damage->flags, _damage_quake2_grenade_bit) || strstr(tag_get_name(damage->definition_index), "frag grenade") != NULL) *
+				(object_index == damage->owner_object_index ? 8.f : 2.5f) * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
+		}
+		else if (TEST_FLAG(damage->flags, _damage_quake2_direct_bit))
+		{
+			direction = damage->direction;
+			acceleration_scale = 120.f * damage->scale * 2.5f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
+		}
+
 		else if (TEST_FLAG(damage->flags, _damage_quake3_direct_bit))
 		{
 			direction = damage->direction;
@@ -1569,7 +1586,7 @@ void object_cause_damage(
 	/* port: replace only the shooter's splash harm. Knockback continues
 	to use the original tag and falloff, independently of health loss. */
 	if (quake_self_damage || TEST_FLAG(damage->flags, _damage_quake_blast_bit) ||
-		(TEST_FLAG(damage->flags, _damage_quake_fall_bit) || TEST_FLAG(damage->flags, _damage_quake3_direct_bit)))
+		(TEST_FLAG(damage->flags, _damage_quake_fall_bit) || TEST_FLAG(damage->flags, _damage_quake3_direct_bit) || TEST_FLAG(damage->flags, _damage_quake2_direct_bit)))
 	{
 		real_point3d center = object_get(object_index)->object.position;
 		real distance;
@@ -1579,6 +1596,8 @@ void object_cause_damage(
 		distance = distance3d(&damage->epicenter, &center);
 		total_damage = (TEST_FLAG(damage->flags, _damage_quake_fall_bit) ? 5.f * damage->scale :
 			TEST_FLAG(damage->flags, _damage_quake3_direct_bit) ? 100.f :
+			TEST_FLAG(damage->flags, _damage_quake2_direct_bit) ? 120.f * damage->scale :
+			TEST_FLAG(damage->flags, _damage_quake2_blast_bit) && !quake_self_damage ? quake2_blast_points(distance, FALSE, TEST_FLAG(damage->flags, _damage_quake2_grenade_bit)) :
 			TEST_FLAG(damage->flags, _damage_quake3_blast_bit) && !quake_self_damage ? quake3_blast_points(quake3_damage_distance(&damage->epicenter, object_index), TEST_FLAG(damage->flags, _damage_quake3_grenade_bit)) :
 			quake_movement_splash_points(distance, QUAKE_WORLD_SCALE, quake_self_damage)) *
 			object_get_maximum_body_vitality(object_index, FALSE) / 100.f;
@@ -1842,7 +1861,8 @@ void object_cause_damage(
 				}
 
 				damage->material_type = damage_material->material_type;
-				if (quake_self_damage || TEST_FLAG(damage->flags, _damage_quake_fall_bit))
+				if (quake_self_damage || TEST_FLAG(damage->flags, _damage_quake_fall_bit) ||
+					TEST_FLAG(damage->flags, _damage_quake2_direct_bit) || TEST_FLAG(damage->flags, _damage_quake2_blast_bit))
 				{
 					/* port: 100 Quake points mean one full body-health bar,
 					without explosive material multipliers increasing them */
@@ -2034,6 +2054,7 @@ void area_of_effect_cause_damage(
 		0,
 		&damage->location,
 		&damage->origin,
+		TEST_FLAG(damage->flags, _damage_quake2_blast_bit) ? (TEST_FLAG(damage->flags, _damage_quake2_grenade_bit) ? 160.f : 120.f) * QUAKE_WORLD_SCALE :
 		TEST_FLAG(damage->flags, _damage_quake3_blast_bit) ? (TEST_FLAG(damage->flags, _damage_quake3_grenade_bit) ? 150.f : 120.f) * QUAKE_WORLD_SCALE : TEST_FLAG(damage->flags, _damage_quake_blast_bit) ? 160.f * QUAKE_WORLD_SCALE : definition->cutoff_radius,
 		object_indices,
 		NUMBEROF(object_indices));
@@ -2498,7 +2519,7 @@ static void area_of_effect_cause_damage_to_object(
 	global_current_collision_users[global_current_collision_user_depth++] =
 		_collision_user_area_damage;
 
-	if (TEST_FLAG(damage->flags, _damage_quake3_blast_bit) && object_index == quake_weapons_direct_target()) can_damage = FALSE;
+	if ((TEST_FLAG(damage->flags, _damage_quake3_blast_bit) || TEST_FLAG(damage->flags, _damage_quake2_blast_bit)) && object_index == quake_weapons_direct_target()) can_damage = FALSE;
 	/* port: selected Quake blasts use five target rays */
 	if (can_damage && object->object.type == _object_type_biped && TEST_FLAG(damage->flags, _damage_quake_blast_bit))
 	{
@@ -2673,6 +2694,7 @@ static void area_of_effect_cause_damage_to_object(
 			{
 				if (quake3_blast_points(quake3_damage_distance(epicenter, object_index), TEST_FLAG(damage->flags, _damage_quake3_grenade_bit)) <= 0.f) can_damage = FALSE;
 			}
+			else if (TEST_FLAG(damage->flags, _damage_quake2_blast_bit) && quake2_blast_points(distance3d(epicenter, &center), FALSE, TEST_FLAG(damage->flags, _damage_quake2_grenade_bit)) <= 0.f) can_damage = FALSE;
 			else if (distance3d(epicenter, &center) > 160.f * QUAKE_WORLD_SCALE) can_damage = FALSE;
 			radius_delta = 0.f;
 		}
