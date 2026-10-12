@@ -23,6 +23,10 @@ struct quake_motion
 	real_point3d position;
 	real_vector3d velocity;
 	real_vector3d wish, previous_wish;
+	real_vector3d view, command; /* command: forward, side, jump-button strength */
+	boolean command_known, jump_held;
+	real_vector3d wall_normal;
+	boolean wall_hit;
 	boolean previous_wish_known;
 	real height, radius, speed_limit;
 	real crouch_velocity;

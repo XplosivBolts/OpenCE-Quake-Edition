@@ -50,6 +50,7 @@ static void quake_slide(struct quake_motion *motion, real fraction,
 	short count = 0, bump;
 	real remaining = fraction;
 
+	motion->wall_hit = FALSE;
 	for (bump = 0; bump < 4; ++bump)
 	{
 		struct quake_trace hit;
@@ -76,6 +77,8 @@ static void quake_slide(struct quake_motion *motion, real fraction,
 			motion->position = hit.end; /* Halo capsule overlap repair can move a zero-time contact */
 		if (hit.fraction == 1.f)
 			break;
+		if (hit.collision.plane.n.k == 0.f)
+		{ motion->wall_hit = TRUE; motion->wall_normal = hit.collision.plane.n; }
 		quake_contact(motion, &hit.collision);
 		if (hit.collision.plane.n.k >= 0.7f && motion->velocity.k < 0.f)
 			motion->landing_velocity = MAX(motion->landing_velocity,
@@ -119,6 +122,29 @@ static void quake_slide(struct quake_motion *motion, real fraction,
 	if (motion->style == _quake_physics_quake2 && motion->q2_land_time) motion->velocity = initial;
 }
 
+/* NetQuake's blocked walking step reduces tangential speed according to
+   the view's approach to the wall. Airborne slides do not use this friction. */
+static void quake_wall_friction(struct quake_motion *motion, real_vector3d const *normal)
+{
+	real approach = dot_product3d(normal, &motion->view) + 0.5f;
+	real into;
+	if (approach >= 0.f) return;
+	into = dot_product3d(normal, &motion->velocity);
+	motion->velocity.i = (motion->velocity.i - normal->i * into) * (1.f + approach);
+	motion->velocity.j = (motion->velocity.j - normal->j * into) * (1.f + approach);
+}
+
+/* Q3 command scaling includes a held jump while airborne. A held jump on
+   support is cleared by the jump check, even if landing occurs mid-tick. */
+static real quake_command_scale(struct quake_motion const *motion)
+{
+	real f = motion->command.i, side = motion->command.j;
+	real up = !motion->airborne && motion->jump_held ? 0.f : motion->command.k;
+	real length = square_root(f*f + side*side + up*up);
+	real maximum = MAX(fabs(f), MAX(fabs(side), fabs(up)));
+	return length > 0.f ? maximum / length : 0.f;
+}
+
 static void quake_ground(struct quake_motion *motion, real fraction,
 	quake_trace_function trace, void *context)
 {
@@ -127,6 +153,7 @@ static void quake_ground(struct quake_motion *motion, real fraction,
 	real_vector3d delta;
 	real dx, dy, down_distance, up_distance;
 	real_point3d start = motion->position;
+	real step_down = motion->style == _quake_physics_netquake ? motion->velocity.k * fraction : 0.f;
 
 	/* Flat motion first; on obstruction choose the farther of a slide
 	and an 18-unit stair attempt, retaining the slide's vertical velocity. */
@@ -151,7 +178,9 @@ static void quake_ground(struct quake_motion *motion, real fraction,
 	}
 	up.position = hit.end;
 	quake_slide(&up, fraction, trace, context);
-	delta.k = -18.f * QUAKE_WORLD_SCALE;
+	if (motion->style == _quake_physics_netquake && up.wall_hit)
+		quake_wall_friction(&up, &up.wall_normal);
+	delta.k = -18.f * QUAKE_WORLD_SCALE + step_down;
 	trace(context, &up.position, &delta, &hit);
 	if (hit.allsolid || hit.fraction == 1.f || hit.collision.plane.n.k < 0.7f)
 	{
@@ -164,7 +193,8 @@ static void quake_ground(struct quake_motion *motion, real fraction,
 	down_distance = dx * dx + dy * dy;
 	dx = up.position.x - start.x; dy = up.position.y - start.y;
 	up_distance = dx * dx + dy * dy;
-	if (down_distance > up_distance)
+	/* NetQuake keeps a valid walking-step result, including wall friction. */
+	if (down_distance > up_distance && motion->style != _quake_physics_netquake)
 		*motion = down;
 	else
 	{
@@ -307,6 +337,8 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 		boolean edge = FALSE;
 		short axis;
 		real_point3d previous = motion->position;
+		real_vector3d step_wish;
+		motion->wish = input_wish;
 		if (motion->style == _quake_physics_quake2)
 		{
 			/* 90 Hz reference commands retain Q2 integer milliseconds. */
@@ -329,6 +361,7 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 			else motion->velocity.k += motion->jump_velocity;
 			motion->airborne = TRUE;
 			motion->jumped = TRUE;
+			if (motion->style == _quake_physics_quake3) motion->jump_held = TRUE;
 			motion->jump = FALSE;
 		}
 		if (!motion->airborne)
@@ -348,16 +381,19 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 				edge = hit.fraction == 1.f;
 			}
 		}
+		step_wish = motion->wish;
+		if (motion->style == _quake_physics_quake3 && motion->command_known)
+			scale_vector3d(&step_wish, quake_command_scale(motion), &step_wish);
 		if (motion->style == _quake_physics_quake3 && !motion->airborne)
 		{
-			real speed = magnitude3d(&motion->wish);
-			real into = dot_product3d(&motion->wish, &motion->ground.plane.n);
-			motion->wish.i -= motion->ground.plane.n.i * into;
-			motion->wish.j -= motion->ground.plane.n.j * into;
-			motion->wish.k -= motion->ground.plane.n.k * into;
-			if (normalize3d(&motion->wish) > 0.f) scale_vector3d(&motion->wish, speed, &motion->wish);
+			real speed = magnitude3d(&step_wish);
+			real into = dot_product3d(&step_wish, &motion->ground.plane.n);
+			step_wish.i -= motion->ground.plane.n.i * into;
+			step_wish.j -= motion->ground.plane.n.j * into;
+			step_wish.k -= motion->ground.plane.n.k * into;
+			if (normalize3d(&step_wish) > 0.f) scale_vector3d(&step_wish, speed, &step_wish);
 		}
-		quake_movement_step_profile(&motion->velocity, &motion->wish, motion->speed_limit,
+		quake_movement_step_profile(&motion->velocity, &step_wish, motion->speed_limit,
 			quake_player_profile_speed(motion->style), motion->airborne || motion->knockback, edge, quake_player_gravity() * (motion->style == _quake_physics_quake3 ? 0.5f : 1.f), dt, motion->style);
 		if (!motion->airborne && motion->jump && motion->style == _quake_physics_netquake)
 		{
@@ -365,10 +401,11 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 			else motion->velocity.k += motion->jump_velocity;
 			motion->airborne = TRUE;
 			motion->jumped = TRUE;
+			if (motion->style == _quake_physics_quake3) motion->jump_held = TRUE;
 			motion->jump = FALSE;
 		}
 		if (motion->stunned)
-			quake_movement_halo_stun(&motion->velocity, &motion->wish,
+			quake_movement_halo_stun(&motion->velocity, &step_wish,
 				(motion->airborne ? motion->air_stun_acceleration : motion->ground_stun_acceleration) * fraction);
 		for (axis = 0; axis < 3; ++axis)
 			if (motion->style != _quake_physics_quake3 && motion->style != _quake_physics_quake2) motion->velocity.n[axis] = PIN(motion->velocity.n[axis], -maximum, maximum);

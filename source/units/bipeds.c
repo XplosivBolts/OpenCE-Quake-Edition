@@ -2715,6 +2715,13 @@ static void biped_update_physics(
 		motion.velocity = physics->velocity;
 		motion.wish.i = facing.i;
 		motion.wish.j = facing.j;
+		motion.view = biped->unit.desired_aiming_vector;
+		if (normalize3d(&motion.view) == 0.f) motion.view = biped->object.forward;
+		motion.command.i = biped->unit.throttle.i;
+		motion.command.j = biped->unit.throttle.j;
+		motion.command.k = TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit) ? 1.f : 0.f;
+		motion.command_known = TRUE;
+		motion.jump_held = TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit);
 		motion.height = physics->height;
 		motion.radius = physics->width;
 		motion.speed_limit = physics->quake_speed_limit;
@@ -4026,17 +4033,7 @@ static void biped_update_moving(
 				/* port: cap desired diagonal speed; retain accumulated momentum */
 				physics.quake_speed_limit = MAX(forward_speed, sideways_speed) *
 					MAX(stun_scale, 0.f) / TICKS_PER_SECOND;
-				if (quake_player_style(biped_index) == _quake_physics_quake3)
-				{
-					real f = biped->unit.throttle.i, side = biped->unit.throttle.j;
-					real up = TEST_FLAG(biped->unit.control_flags, _unit_control_jump_bit) &&
-						(TEST_FLAG(biped->biped.flags, _biped_airborne_bit) || !TEST_FLAG(biped->biped.flags, _biped_quake_jump_held_bit)) ? 1.f : 0.f;
-					real length = square_root(f*f + side*side + up*up);
-					real maximum = MAX(fabs(f), MAX(fabs(side), up));
-					real scale = length > 0.f ? quake_player_speed() * stun_scale * maximum / length : 0.f;
-					physics.movement_desired.i = f * scale;
-					physics.movement_desired.j = side * scale;
-				}
+				/* port: Q3 command scaling is applied per movement substep. */
 
 				if (!TEST_FLAG(
 					biped->unit.control_flags,
