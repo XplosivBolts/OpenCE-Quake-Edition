@@ -1193,7 +1193,7 @@ Profile algorithms and proportional weapon parameters are documented in the root
 
 Q2 grenades use the grenade launcher: 600 forward, 200 plus/minus 10 upward, plus/minus 10 sideways, 2.5-second fuse, 1.5 normal-only bounce and 160-unit splash range. Rockets travel 650 units/s, have 120-unit splash range, and expire without exploding on the 12 seconds (the original `8000 / 650` integer division). Q2 projectiles run at 10 Hz, with swept collision traces. Launch offsets are 8 forward/8 right; standing launch height is 38 of the 56 scaled body units, adjusting toward the Q2 crouched ratio as the Halo body changes. All distances, velocities and impulses use 80 Q units per Halo WU.
 
-Q2 radial impulse uses integer center-distance points, the original self half and mass-200 factors (8 for self, 2.5 for others). Q2 rockets capture randomized direct damage 100–120 (the upper endpoint is rare); grenade direct damage uses its center falloff. All weapon styles retain the previously selected common Q1 self-damage policy. Q2 fall damage follows the severity-based `(delta - 30)/2` integer formula; Halo underwater landings remain exempt. Network version 42 is required for the updated movement simulation. Older builds cannot join.
+Q2 radial impulse uses integer center-distance points, the original self half and mass-200 factors (8 for self, 2.5 for others). Q2 rockets capture randomized direct damage 100–120 (the upper endpoint is rare); grenade direct damage uses its center falloff. All weapon styles retain the previously selected common Q1 self-damage policy. Q2 fall damage follows the severity-based `(delta - 30)/2` integer formula; Halo underwater landings remain exempt. Network version 43 is required for the updated movement simulation. Older builds cannot join.
 
 Controls Setup > Physics contains Style, Rocket/Grenade, and Speed Display.
 Speed Display defaults to Off and shows horizontal speed as `X.X m/s` below the
@@ -1205,5 +1205,14 @@ The display is local and takes effect immediately when OK saves it.
 
 NetQuake walking steps now include view-angle-dependent wall friction. Quake 3
 command normalization runs on each movement substep, including held jump input
-in air and clearing it on support. Network version 42 separates these rules
+in air and clearing it on support. Network version 43 separates these rules
 from older simulations; no preference IDs or packet fields changed.
+
+Q3 contact update (network version 43): its solver resolves the support and
+initial-travel planes together with impact planes, nudges repeated contacts,
+clips both midpoint and end gravity velocities, and uses Q3 step resolution.
+Hard landings start a 250ms timer; the timer retains primal movement velocity
+through clipping, as in original Q3, and is included in host unit snapshots.
+Q3 movement headings use 16-bit command precision without altering Halo view
+or aim. The Q3 movement capsule is scaled to the original 30-unit standing
+width rather than Q1/Q2's 32; total Halo standing/crouch heights stay intact.

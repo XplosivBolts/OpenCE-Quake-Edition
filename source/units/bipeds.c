@@ -690,6 +690,16 @@ void biped_get_physics_pill(
 		*height = 0.f;
 	}
 	*width = definition->biped.collision_radius;
+	/* port: Q3's standing hull is 30 units wide, versus Q1/Q2's 32.
+	   Preserve the Halo capsule's total height and crouch-height transition. */
+	if (quake_player_style(biped_index) == _quake_physics_quake3 && quake_player_active(biped_index))
+	{
+		real change = *width * (1.f / 16.f);
+		*width -= change;
+		if (!TEST_FLAG(definition->biped.flags, _biped_spherical_bit)) *height += 2.f * change;
+		if (!TEST_FLAG(definition->biped.flags, _biped_pill_centered_at_origin_bit)) base->z -= change;
+	}
+
 
 	return;
 }
@@ -2710,6 +2720,7 @@ static void biped_update_physics(
 		motion.biped_index = physics->biped_index;
 		motion.style = quake_player_style(physics->biped_index);
 		motion.q2_land_time = quake2_player_land_time(physics->biped_index, 0, FALSE);
+		motion.q3_land_time = quake3_player_land_time(physics->biped_index, 0, FALSE);
 		motion.collision_flags = collision_flags;
 		motion.position = position;
 		motion.velocity = physics->velocity;
@@ -2735,6 +2746,7 @@ static void biped_update_physics(
 		motion.airborne = TEST_FLAG(in_flags, _biped_physics_in_airborne_bit);
 		quake_motion_halo(&motion);
 		if (motion.style == _quake_physics_quake2) quake2_player_land_time(physics->biped_index, motion.q2_land_time, TRUE);
+		if (motion.style == _quake_physics_quake3) quake3_player_land_time(physics->biped_index, motion.q3_land_time, TRUE);
 		physics->quake_jumped = motion.jumped;
 		clipped_position = motion.position;
 		clipped_velocity = motion.velocity;

@@ -759,3 +759,10 @@ native movement, projectile and falling-damage paths. Both weapon choices share
 the Quake self-damage values, with Halo shields and damage immunities retained.
 
 The fixed movement schedules share the synchronized world tick. Q3-specific damage flags in client reports are restored only after authenticated owner/profile and canonical damage-tag validation.
+
+Network version 43 adds a remaining-Q3-landing-timer byte to each living
+player unit snapshot, after the unit index. Values above 250 milliseconds
+are rejected. A confirmed host style is applied before its timer, so local
+prediction/replay uses the same landing state. The profile IDs are unchanged.
+Version 43 also separates Q3 contact rules and proportional hull width from
+older movement simulations; every peer must use the same version.

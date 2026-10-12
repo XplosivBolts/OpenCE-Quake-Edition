@@ -24,7 +24,8 @@ Speed Display takes effect when saved.
 
 These graphs compare original-source movement simulations with the Halo solver
 using proportional measurements. Green traces are recorded Halo test-room
-ground-movement and standing-jump runs. Explosive-jump panels compare controlled
+ground-movement and standing-jump runs. Pink checkpoints in the Quake 3 sheet
+are native Quake 3 recordings with scripted inputs. Explosive-jump panels compare controlled
 blast responses; they exclude projectile flight, fuse timing and bounces.
 
 ### NetQuake

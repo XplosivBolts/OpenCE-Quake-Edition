@@ -18,7 +18,8 @@ struct quake_motion
 {
 	long biped_index;
 	short style;
-	short q2_land_time;
+	short q2_land_time, q3_land_time;
+	real previous_vertical_velocity;
 	unsigned long collision_flags;
 	real_point3d position;
 	real_vector3d velocity;
@@ -33,6 +34,7 @@ struct quake_motion
 	real ground_stun_acceleration, air_stun_acceleration;
 	real jump_velocity;
 	boolean airborne, stunned, jump, jumped, knockback;
+	boolean ground_plane;
 	struct collision_plane ground;
 	real landing_velocity;
 	short collision_count;
@@ -92,5 +94,6 @@ boolean quake_player_knockback(long biped_index);
 void quake_player_motion_heading(long biped_index, real_vector3d const *wish, real_vector3d *previous, boolean *known);
 real quake_player_profile_speed(short style);
 short quake2_player_land_time(long biped_index, short time, boolean write);
+short quake3_player_land_time(long biped_index, short time, boolean write);
 real quake2_fall_points(real downward_velocity, boolean water);
 #endif

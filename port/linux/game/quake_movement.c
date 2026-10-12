@@ -65,6 +65,8 @@ struct quake_player_preference
 	long motion_unit, motion_tick;
 	long q2_land_unit;
 	short q2_land_time;
+	long q3_land_unit;
+	short q3_land_time;
 	real_vector3d motion_wish;
 	long player_index;
 	long tick;
@@ -121,6 +123,7 @@ void quake_player_set_style(long biped_index, short enabled)
 	{
 		SET_FLAG(biped->biped.flags, _biped_quake_jump_held_bit, FALSE);
 		quake2_player_land_time(biped_index, 0, TRUE);
+		quake3_player_land_time(biped_index, 0, TRUE);
 	}
 	SET_FLAG(biped->biped.flags, _biped_quake_style_bit, enabled & 1);
 	SET_FLAG(biped->biped.flags, _biped_quake_style_high_bit, enabled & 2);
@@ -185,6 +188,20 @@ short quake2_player_land_time(long biped_index, short time, boolean write)
 	}
 	if (write) preference->q2_land_time = PIN(time, 0, 25);
 	return preference->q2_land_time;
+}
+
+short quake3_player_land_time(long biped_index, short time, boolean write)
+{
+	struct biped_datum *biped = biped_get(biped_index);
+	struct quake_player_preference *preference = quake_preference(biped->unit.player_index);
+	if (!preference) return 0;
+	if (preference->q3_land_unit != biped_index)
+	{
+		preference->q3_land_unit = biped_index;
+		preference->q3_land_time = 0;
+	}
+	if (write) preference->q3_land_time = PIN(time, 0, 250);
+	return preference->q3_land_time;
 }
 
 real quake_player_jump_velocity(void)
@@ -331,7 +348,7 @@ void quake_player_blast(long biped_index, real_vector3d const *acceleration)
 	struct biped_datum *biped = biped_get(biped_index);
 	if (magnitude3d(acceleration) == 0.f) return;
 
-	if (quake_player_style(biped_index) == _quake_physics_quake3 && !quake_player_knockback(biped_index))
+	if (quake_player_style(biped_index) == _quake_physics_quake3 && !quake_player_knockback(biped_index) && !quake3_player_land_time(biped_index, 0, FALSE))
 	{
 		struct quake_player_preference *preference = quake_preference(biped->unit.player_index);
 		real points = magnitude3d(acceleration) / QUAKE_WORLD_SCALE * TICKS_PER_SECOND / 5.f;

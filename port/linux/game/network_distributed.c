@@ -314,7 +314,7 @@ struct distributed_unit_state
 	short seat_index;
 	/* how camouflaged the unit is, of 255 */
 	byte active_camouflage;
-	byte pad;
+	byte q3_land_time; /* remaining landing timer, milliseconds */
 	real_point3d position;
 	struct distributed_vector velocity;
 	struct distributed_vector forward;
@@ -387,7 +387,7 @@ enum
 	most it has, and a relayed action's (past the update each message has
 	first) */
 	DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE = 3,
-	DISTRIBUTED_UNIT_STATE_MAXIMUM_SIZE = 3 + 4 + (4 + 2) + (12 + 3 * 6) + 2 + 2 * 2 + 4 * 2 +
+	DISTRIBUTED_UNIT_STATE_MAXIMUM_SIZE = 3 + 5 + (4 + 2) + (12 + 3 * 6) + 2 + 2 * 2 + 4 * 2 +
 		2 * NUMBER_OF_PLAYER_POWERUPS + 3 + 1,
 	DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE = 14,
 	DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE = 14 + 2 * (DISTRIBUTED_INPUT_HISTORY - 1),
@@ -1379,6 +1379,7 @@ static void distributed_state_from_player(
 		state->unit_index = unit_index;
 		if (unit->object.type == _object_type_biped)
 		{
+			if (quake_player_style(unit_index) == _quake_physics_quake3) state->q3_land_time = (byte)quake3_player_land_time(unit_index, 0, FALSE);
 			SET_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit, quake_player_style(unit_index) & 1);
 			SET_FLAG(state->unit_flags, _distributed_unit_physics_high_bit, quake_player_style(unit_index) & 2);
 			SET_FLAG(state->unit_flags, _distributed_unit_physics_extra_bit, quake_player_style(unit_index) & 4);
@@ -1459,6 +1460,7 @@ static word distributed_unit_state_write(
 	if (TEST_FLAG(flags, _distributed_unit_alive_bit))
 	{
 		cursor = distributed_put(cursor, &state->unit_index, sizeof(state->unit_index));
+		cursor = distributed_put(cursor, &state->q3_land_time, sizeof(state->q3_land_time));
 		if (state->vehicle_index != NONE)
 		{
 			SET_FLAG(parts, _distributed_unit_part_riding_bit, TRUE);
@@ -1547,6 +1549,7 @@ static word distributed_unit_state_read(
 	{
 		if (!distributed_take(&cursor, end, &state->unit_index, sizeof(state->unit_index)))
 			return 0;
+		if (!distributed_take(&cursor, end, &state->q3_land_time, sizeof(state->q3_land_time)) || state->q3_land_time > 250) return 0;
 		if (TEST_FLAG(parts, _distributed_unit_part_riding_bit) &&
 			(!distributed_take(&cursor, end, &state->vehicle_index, sizeof(state->vehicle_index)) ||
 				!distributed_take(&cursor, end, &state->seat_index, sizeof(state->seat_index))))
@@ -2304,7 +2307,10 @@ static void distributed_handle_unit_state(
 	Unknown defaults while joining must not overwrite local prediction. */
 	if (object_get(unit_index)->object.type == _object_type_biped &&
 		TEST_FLAG(state->unit_flags, _distributed_unit_physics_known_bit))
+	{
 		quake_player_set_style(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_physics_high_bit) << 1) | (TEST_FLAG(state->unit_flags, _distributed_unit_physics_extra_bit) << 2));
+		quake3_player_land_time(unit_index, state->q3_land_time, TRUE);
+	}
 	if (object_get(unit_index)->object.type == _object_type_biped && TEST_FLAG(state->unit_flags, _distributed_unit_weapons_known_bit))
 		quake_player_set_weapons(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_weapons_high_bit) << 1));
 	/* the seat it rides: a client's own player's, once it has ridden
