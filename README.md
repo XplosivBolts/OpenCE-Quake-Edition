@@ -1,4 +1,5 @@
 # OpenCE Quake Edition
+A mostly accurate implementation of Quake player physics / behaviors and grenade / rocket behavior, with small exceptions due to tickrate differences between Quake 1, 2, 3 and the OpenCE project.
 
 Forked from [OpenCommunityEdition/OpenCE](https://github.com/OpenCommunityEdition/OpenCE).
 
