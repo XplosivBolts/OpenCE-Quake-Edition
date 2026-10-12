@@ -672,14 +672,16 @@ static boolean quake_projectile_update(long projectile_index, short kind)
 {
 	struct projectile_datum *projectile = projectile_get(projectile_index);
 	short step;
+	short profile = quake_weapons_projectile_profile(projectile_index);
+	boolean q3 = profile == _quake_weapons_quake3;
 	boolean detonate = FALSE;
 	if (projectile->object.parent_object_index != NONE) return TRUE;
 	quake_weapons_launch(projectile_index);
 	/* port: test elapsed ticks before advancing the interval; the launch
 	   update is time zero, not one elapsed world tick. */
-	if (projectile->projectile.detonation_timer >= (kind == 2 ? 75.f : 150.f))
+	if (projectile->projectile.detonation_timer >= (kind == 2 ? 75.f : q3 ? 450.f : 150.f))
 	{
-		if (kind == 2) projectile_detonate(projectile_index, TRUE, 0.f);
+		if (kind == 2 || q3) projectile_detonate(projectile_index, TRUE, 0.f);
 		object_delete(projectile_index);
 		return TRUE;
 	}
@@ -687,26 +689,48 @@ static boolean quake_projectile_update(long projectile_index, short kind)
 	{
 		real_point3d position;
 		real_vector3d velocity = projectile->object.translational_velocity;
+		real gravity = 800.f * QUAKE_WORLD_SCALE / (TICKS_PER_SECOND * TICKS_PER_SECOND * 3.f);
+		boolean hit;
 		struct collision_result collision;
 		if (TEST_FLAG(projectile->object.flags, _object_at_rest_bit)) break;
-		if (kind == 2) velocity.k -= 800.f * QUAKE_WORLD_SCALE / (TICKS_PER_SECOND * TICKS_PER_SECOND * 3.f);
+		if (kind == 2) velocity.k -= gravity * (q3 ? 0.5f : 1.f);
 		point_from_line3d(&projectile->object.position, &velocity, 1.f/3.f, &position);
 		global_current_collision_users[global_current_collision_user_depth++] = _collision_user_projectiles;
-		if (projectile_collision_test_line(projectile_index, &position, &collision))
+		hit = projectile_collision_test_line(projectile_index, &position, &collision);
+		if (hit)
 		{
+			if (q3 && kind == 2)
+			{
+				real_vector3d delta, contact;
+				real fraction;
+				vector_from_points3d(&projectile->object.position, &position, &delta);
+				vector_from_points3d(&projectile->object.position, &collision.point, &contact);
+				fraction = magnitude_squared3d(&delta) > 0.f ? PIN(dot_product3d(&contact, &delta) / magnitude_squared3d(&delta), 0.f, 1.f) : 0.f;
+				velocity.k += gravity * (0.5f - fraction);
+			}
 			position = collision.point;
 			/* port: Quake hull traces leave a small gap before the contact plane */
-			point_from_line3d(&position, &collision.plane.n, 0.03125f * QUAKE_WORLD_SCALE, &position);
+			point_from_line3d(&position, &collision.plane.n, (q3 ? 1.f : 0.03125f) * QUAKE_WORLD_SCALE, &position);
 			if (kind == 1 || (collision.type == _collision_result_object &&
 				object_try_and_get_and_verify_type(collision.object_index, _object_mask_unit)))
+			{
 				detonate = TRUE;
+				if (q3) position = collision.point;
+				if (q3 && collision.type == _collision_result_object)
+				{
+					SET_FLAG(projectile->projectile.flags, QUAKE_PROJECTILE_DIRECT_BIT, TRUE);
+					projectile->projectile.target_object_index = collision.object_index;
+				}
+			}
 			else
 			{
-				quake_weapons_grenade_bounce(&velocity, &collision.plane.n);
-				if (collision.plane.n.k > 0.7f && magnitude_squared3d(&velocity) == 0.f)
+				quake_weapons_grenade_bounce(&velocity, &collision.plane.n, profile);
+				if (collision.plane.n.k > (q3 ? 0.2f : 0.7f) && magnitude_squared3d(&velocity) == 0.f)
 					SET_FLAG(projectile->object.flags, _object_at_rest_bit, TRUE);
+				if (q3 && magnitude_squared3d(&velocity) == 0.f) position = collision.point;
 			}
 		}
+		if (q3 && kind == 2 && !hit) velocity.k -= gravity * 0.5f;
 		--global_current_collision_user_depth;
 		object_translate(projectile_index, &position, NULL);
 		projectile->object.translational_velocity = velocity;
@@ -715,6 +739,7 @@ static boolean quake_projectile_update(long projectile_index, short kind)
 	projectile->projectile.detonation_timer += 1.f;
 	if (detonate)
 	{
+		quake_weapons_impact(projectile_index);
 		projectile_detonate(projectile_index, TRUE, 0.f);
 		object_delete(projectile_index);
 	}

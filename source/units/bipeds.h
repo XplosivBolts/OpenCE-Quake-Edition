@@ -28,6 +28,8 @@ enum
 	_biped_quake_weapons_set_bit, /* port: weapon behavior selected for this life */
 	_biped_quake_weapons_bit, /* port: Quake rocket/frag behavior */
 	_biped_quake_halo_climbing_bit, /* port: retain Halo's tagged ladder handling */
+	_biped_quake_style_high_bit, /* port: two-bit movement profile */
+	_biped_quake_weapons_high_bit, /* port: two-bit projectile profile */
 };
 
 /* ---------- macros */

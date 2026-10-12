@@ -234,6 +234,8 @@ enum
 	_distributed_unit_physics_known_bit,
 	_distributed_unit_quake_weapons_bit,
 	_distributed_unit_weapons_known_bit,
+	_distributed_unit_physics_high_bit,
+	_distributed_unit_weapons_high_bit,
 };
 
 /* a unit state's parts on the wire: which of those that are not always
@@ -1376,9 +1378,11 @@ static void distributed_state_from_player(
 		state->unit_index = unit_index;
 		if (unit->object.type == _object_type_biped)
 		{
-			SET_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit, quake_player_style(unit_index));
+			SET_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit, quake_player_style(unit_index) & 1);
+			SET_FLAG(state->unit_flags, _distributed_unit_physics_high_bit, quake_player_style(unit_index) & 2);
 			SET_FLAG(state->unit_flags, _distributed_unit_physics_known_bit, quake_player_style_known(unit_index));
-			SET_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit, quake_player_weapons(unit_index));
+			SET_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit, quake_player_weapons(unit_index) & 1);
+			SET_FLAG(state->unit_flags, _distributed_unit_weapons_high_bit, quake_player_weapons(unit_index) & 2);
 			SET_FLAG(state->unit_flags, _distributed_unit_weapons_known_bit, quake_player_weapons_known(unit_index));
 		}
 		SET_FLAG(state->flags, _distributed_unit_alive_bit, TRUE);
@@ -2294,9 +2298,9 @@ static void distributed_handle_unit_state(
 	Unknown defaults while joining must not overwrite local prediction. */
 	if (object_get(unit_index)->object.type == _object_type_biped &&
 		TEST_FLAG(state->unit_flags, _distributed_unit_physics_known_bit))
-		quake_player_set_style(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit));
+		quake_player_set_style(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_physics_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_physics_high_bit) << 1));
 	if (object_get(unit_index)->object.type == _object_type_biped && TEST_FLAG(state->unit_flags, _distributed_unit_weapons_known_bit))
-		quake_player_set_weapons(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit));
+		quake_player_set_weapons(unit_index, TEST_FLAG(state->unit_flags, _distributed_unit_quake_weapons_bit) | (TEST_FLAG(state->unit_flags, _distributed_unit_weapons_high_bit) << 1));
 	/* the seat it rides: a client's own player's, once it has ridden
 	otherwise for longer than its prediction takes to reach the host and
 	come back (a player within the tracked ones, as players.c's datums are) */
@@ -2475,7 +2479,7 @@ static void distributed_handle_inputs(
 		struct player_action action;
 
 		if (input->player_index >= MAXIMUM_TRACKED_PLAYERS ||
-			input->quake_physics > 1 || input->quake_weapons > 1 ||
+			input->quake_physics > 3 || input->quake_weapons > 2 ||
 			!distributed_machine_has_player(machine_index, input->player_index))
 		{
 			continue;
@@ -2486,8 +2490,8 @@ static void distributed_handle_inputs(
 		/* Authenticated ownership above: a player can request only their
 		own next-life style. Old datagrams cannot undo a newer preference. */
 		quake_player_request(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick,
-			input->quake_physics != 0);
-	quake_player_weapons_request(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick, input->quake_weapons != 0);
+			input->quake_physics);
+	quake_player_weapons_request(DATUM_INDEX_NEW(input->player_index, player->identifier), input->tick, input->quake_weapons);
 		/* (the sticks and the trigger no further than a controller's) */
 		action = input->action;
 		action.throttle.i = PIN(action.throttle.i, -1.0f, 1.0f);

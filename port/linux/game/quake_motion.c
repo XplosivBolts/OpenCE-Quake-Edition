@@ -3,6 +3,7 @@ over Halo collision queries. Halo's capsule and airborne crouch displacement
 are deliberate compatibility choices; combat stun also remains Halo's. */
 #include "cseries.h"
 #include "quake_movement.h"
+long game_time_get(void);
 #include "physics/collisions.h"
 #include "physics/collision_usage.h"
 
@@ -25,12 +26,13 @@ boolean quake_motion_climbable(struct quake_motion const *motion)
 	return FALSE;
 }
 
-static void quake_clip(real_vector3d const *velocity, real_vector3d const *normal, real_vector3d *out)
+static void quake_clip(real_vector3d const *velocity, real_vector3d const *normal, real_vector3d *out, short style)
 {
 	real into = dot_product3d(velocity, normal);
 	real epsilon = 0.1f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
 	short axis;
 
+	if (style == _quake_physics_quake3) into *= into < 0.f ? 1.001f : (1.f / 1.001f);
 	for (axis = 0; axis < 3; ++axis)
 	{
 		out->n[axis] = velocity->n[axis] - normal->n[axis] * into;
@@ -85,7 +87,7 @@ static void quake_slide(struct quake_motion *motion, real fraction,
 		planes[count++] = hit.collision.plane.n;
 		for (plane = 0; plane < count; ++plane)
 		{
-			quake_clip(&original, &planes[plane], &candidate);
+			quake_clip(&original, &planes[plane], &candidate, motion->style);
 			for (other = 0; other < count; ++other)
 				if (other != plane && dot_product3d(&candidate, &planes[other]) < 0.f)
 					break;
@@ -173,10 +175,11 @@ static void quake_categorize(struct quake_motion *motion, quake_trace_function t
 	real_vector3d down = { 0.f, 0.f, -QUAKE_WORLD_SCALE };
 	boolean was_airborne = motion->airborne;
 
+	if (motion->style == _quake_physics_quake3) down.k *= 0.25f;
 	motion->airborne = TRUE;
 	/* Halo injury can reduce a jump below Quake's usual 180-unit upward
 	ground-probe cutoff. Do not snap an ascending, weakened jump back down. */
-	if (motion->velocity.k > 180.f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND ||
+	if (motion->velocity.k > (motion->style == _quake_physics_quake3 ? 10.f : 180.f) * QUAKE_WORLD_SCALE / TICKS_PER_SECOND ||
 		(was_airborne && (motion->stunned || motion->crouch_velocity != 0.f) &&
 			motion->velocity.k + motion->crouch_velocity > 0.f))
 		return;
@@ -184,7 +187,7 @@ static void quake_categorize(struct quake_motion *motion, quake_trace_function t
 	if (!hit.allsolid && hit.fraction < 1.f && hit.collision.plane.n.k >= 0.7f)
 	{
 		motion->airborne = FALSE;
-		motion->position = hit.end;
+		if (motion->style != _quake_physics_quake3) motion->position = hit.end;
 		motion->ground = hit.collision;
 		/* The Halo adapter snaps the feet onto support. Resolve the incoming
 		normal velocity too, so a pending jump does not inherit a fall. */
@@ -195,7 +198,7 @@ static void quake_categorize(struct quake_motion *motion, quake_trace_function t
 			if (was_airborne)
 				motion->landing_velocity = MAX(motion->landing_velocity,
 					-motion->velocity.k);
-			quake_clip(&motion->velocity, &hit.collision.plane.n, &supported);
+			quake_clip(&motion->velocity, &hit.collision.plane.n, &supported, motion->style);
 			motion->velocity = supported;
 		}
 		quake_contact(motion, &hit.collision);
@@ -206,22 +209,51 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 	quake_trace_function edge_trace, void *context)
 {
 	short step;
+	long tick = game_time_get();
+	short count = QUAKE_MOVEMENT_SUBSTEPS;
 	real fraction = 1.f / QUAKE_MOVEMENT_SUBSTEPS;
-	real dt = fraction / TICKS_PER_SECOND;
+	real dt;
+	real_vector3d input_wish = motion->wish;
+	real angle = 0.f, change = 0.f, wish_speed = magnitude3d(&input_wish);
 	real maximum = 2000.f * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
 
+	if (motion->style == _quake_physics_netquake || motion->style == _quake_physics_quakeworld)
+	{
+		count = (short)(((tick % 5 + 1) * 12) / 5 - ((tick % 5) * 12) / 5);
+		fraction = TICKS_PER_SECOND / 72.f;
+	}
+	else if (motion->style == _quake_physics_quake3)
+	{
+		count = tick % 6 == 5 ? 5 : 4;
+		fraction = TICKS_PER_SECOND * 0.008f;
+	}
+	dt = fraction / TICKS_PER_SECOND;
+	if (motion->previous_wish_known)
+	{
+		angle = atan2(motion->previous_wish.j, motion->previous_wish.i);
+		change = atan2(input_wish.j, input_wish.i) - angle;
+		if (change > _pi) change -= 2.f * _pi;
+		if (change < -_pi) change += 2.f * _pi;
+	}
 	motion->collision_count = 0;
 	motion->landing_velocity = 0.f;
 	motion->jumped = FALSE;
 	quake_categorize(motion, trace, context);
-	for (step = 0; step < QUAKE_MOVEMENT_SUBSTEPS; ++step)
+	for (step = 0; step < count; ++step)
 	{
 		boolean edge = FALSE;
 		short axis;
 
-		if (!motion->airborne && motion->jump)
+		if (motion->previous_wish_known)
 		{
-			motion->velocity.k += motion->jump_velocity;
+			real heading = angle + change * (step + 1.f) / count;
+			motion->wish.i = cosine(heading) * wish_speed;
+			motion->wish.j = sine(heading) * wish_speed;
+		}
+		if (!motion->airborne && motion->jump && motion->style != _quake_physics_netquake)
+		{
+			if (motion->style == _quake_physics_quake3) motion->velocity.k = motion->jump_velocity;
+			else motion->velocity.k += motion->jump_velocity;
 			motion->airborne = TRUE;
 			motion->jumped = TRUE;
 			motion->jump = FALSE;
@@ -243,13 +275,30 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 				edge = hit.fraction == 1.f;
 			}
 		}
-		quake_movement_step_time(&motion->velocity, &motion->wish, motion->speed_limit,
-			quake_player_speed(), motion->airborne, edge, quake_player_gravity(), dt);
+		if (motion->style == _quake_physics_quake3 && !motion->airborne)
+		{
+			real speed = magnitude3d(&motion->wish);
+			real into = dot_product3d(&motion->wish, &motion->ground.plane.n);
+			motion->wish.i -= motion->ground.plane.n.i * into;
+			motion->wish.j -= motion->ground.plane.n.j * into;
+			motion->wish.k -= motion->ground.plane.n.k * into;
+			if (normalize3d(&motion->wish) > 0.f) scale_vector3d(&motion->wish, speed, &motion->wish);
+		}
+		quake_movement_step_profile(&motion->velocity, &motion->wish, motion->speed_limit,
+			quake_player_speed(), motion->airborne || motion->knockback, edge, quake_player_gravity() * (motion->style == _quake_physics_quake3 ? 0.5f : 1.f), dt, motion->style);
+		if (!motion->airborne && motion->jump && motion->style == _quake_physics_netquake)
+		{
+			if (motion->style == _quake_physics_quake3) motion->velocity.k = motion->jump_velocity;
+			else motion->velocity.k += motion->jump_velocity;
+			motion->airborne = TRUE;
+			motion->jumped = TRUE;
+			motion->jump = FALSE;
+		}
 		if (motion->stunned)
 			quake_movement_halo_stun(&motion->velocity, &motion->wish,
 				(motion->airborne ? motion->air_stun_acceleration : motion->ground_stun_acceleration) * fraction);
 		for (axis = 0; axis < 3; ++axis)
-			motion->velocity.n[axis] = PIN(motion->velocity.n[axis], -maximum, maximum);
+			if (motion->style != _quake_physics_quake3) motion->velocity.n[axis] = PIN(motion->velocity.n[axis], -maximum, maximum);
 		/* Preserve Halo's vertical displacement as its crouching capsule
 		changes height in the air, with collision determining the result. */
 		motion->velocity.k += motion->crouch_velocity;
@@ -258,6 +307,17 @@ void quake_motion_integrate(struct quake_motion *motion, quake_trace_function tr
 		else
 			quake_ground(motion, fraction, trace, context);
 		motion->velocity.k -= motion->crouch_velocity;
+		if (motion->style == _quake_physics_quake3)
+		{
+			motion->velocity.k -= quake_player_gravity() * dt * TICKS_PER_SECOND * 0.5f;
+			for (axis = 0; axis < 3; ++axis)
+				{
+					real value = motion->velocity.n[axis] / QUAKE_WORLD_SCALE * TICKS_PER_SECOND;
+					real whole = floor(value), part = value - whole;
+					if (part > 0.5f || (part == 0.5f && ((long)whole & 1))) whole += 1.f;
+					motion->velocity.n[axis] = whole * QUAKE_WORLD_SCALE / TICKS_PER_SECOND;
+				}
+		}
 		quake_categorize(motion, trace, context);
 	}
 }
@@ -363,6 +423,7 @@ void quake_motion_halo(struct quake_motion *motion)
 	collision_features_new(&context.features);
 	collision_get_features_in_sphere(motion->collision_flags, &center, radius, motion->height,
 		motion->radius, motion->biped_index, &context.features);
+	quake_player_motion_heading(motion->biped_index, &motion->wish, &motion->previous_wish, &motion->previous_wish_known);
 	quake_motion_integrate(motion, quake_halo_trace, quake_halo_edge_trace, &context);
 	--global_current_collision_user_depth;
 }
