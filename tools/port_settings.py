@@ -470,7 +470,7 @@ def _controls_screen() -> list:
                       ("strings", "|".join(CONTROL_GROUPS)), ("font", "ui\\large_ui"), ("color", "#FF2896FF"),
                       ("align", "center"), ("text_y", 1), ("header_bitmap", "bitmaps/arrow_sm_left"),
                       ("footer_bitmap", "bitmaps/arrow_sm_right"), ("header_bounds", "7 -6 19 0"),
-                      ("footer_bounds", "7 300 19 306")], [])
+                      ("footer_bounds", "7 300 19 306")], ['<on event="created" run="controls screen init"/>'])
     for index in range(CONTROL_ROWS):
         row = f"{base}/op_command_{index + 1}"
         rows.append((row, None))

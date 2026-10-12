@@ -5653,6 +5653,12 @@ boolean pc_menu_event_function_invoke(
 		{
 			settings_each(screen_of(widget), setting_default_show);
 		}
+		else if (!strcmp(name, "controls screen init") && !strcmp(widget->name, "group_spinner"))
+		{
+			/* port: open on Movement; Physics is one step to its left. */
+			widget->parameters.list.selected_index = 1;
+			return TRUE;
+		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
 			boolean defaults = !strcmp(name, "controls screen defaults");
